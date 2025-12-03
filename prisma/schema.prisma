@@ -134,7 +134,7 @@ model DealStatus {
 model Deal {
   id                   Int             @id @default(autoincrement())
   deal_number          String          @unique
-  customer_id          Int
+  customer_name        String
   deal_type            DealType
   transaction_mode     TransactionMode
   amount               Decimal

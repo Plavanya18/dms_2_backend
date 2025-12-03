@@ -7,6 +7,7 @@ const authRoutes = require('./auth.route');
 const ipRoute = require('./ipaddress.route');
 const currencyRoute = require('./currency.route');
 const statusRoute = require('./status.route');
+const dealRoute = require('./deal.route');
 
 const router = express.Router();
 
@@ -34,6 +35,10 @@ const defaultRoutes = [
   {
     path: '/status',
     route: statusRoute
+  },
+  {
+    path: '/deal',
+    route: dealRoute
   }
 ];
 

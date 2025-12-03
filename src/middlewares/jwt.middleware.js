@@ -50,7 +50,7 @@ const verifyToken = async (req, res, next) => {
     if (inactiveFor > INACTIVITY_TIMEOUT_MS) {
       await getdb.userSession.update({
         where: { id: session.id },
-        data: { session_status: "timeout", updated_at: now },
+        data: { session_status: "timeout", logout_time: now, updated_at: now },
       });
 
       return res.status(401).json({

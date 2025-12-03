@@ -3,3 +3,4 @@ module.exports.roleController = require('./role.controller');
 module.exports.userController = require('./user.controller');
 module.exports.ipaddressController = require('./ipaddress.controller');
 module.exports.currencyController = require('./currency.controller');
+module.exports.statusController = require('./status.controller');

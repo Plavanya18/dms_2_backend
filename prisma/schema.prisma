@@ -7,6 +7,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum RoleEnum {
+  Maker
+  Checker
+}
+
 enum DealType {
   buy
   sell
@@ -17,21 +22,24 @@ enum TransactionMode {
   credit
 }
 
+enum DealStatusEnum {
+  Pending
+  Completed
+  Reject
+  Approve
+}
+
+enum ReconciliationStatusEnum {
+  Tallied
+  Short
+  Excess
+}
+
 enum SessionStatus {
   active
   inactive
   terminated
   timeout
-}
-
-model Role {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?
-  created_at  DateTime
-  updated_at  DateTime
-
-  users User[]
 }
 
 model User {
@@ -40,7 +48,7 @@ model User {
   email                 String    @unique
   password              String
   phone_number          String
-  role_id               Int
+  role                  RoleEnum
   is_active             Boolean
   must_change_password  Boolean
   password_last_changed DateTime?
@@ -54,11 +62,6 @@ model User {
   updated_at            DateTime
   deleted_at            DateTime?
 
-  role                  Role             @relation(fields: [role_id], references: [id])
-  deactivatedByUser     User?            @relation("UserDeactivatedBy", fields: [deactivated_by], references: [id])
-  deactivatedUsers      User[]           @relation("UserDeactivatedBy")
-  deletedByUser         User?            @relation("UserDeletedBy", fields: [deleted_by], references: [id])
-  deletedUsers          User[]           @relation("UserDeletedBy")
   details               UserDetail?
   sessions              UserSession[]
   dealsCreated          Deal[]           @relation("DealCreatedBy")
@@ -84,7 +87,6 @@ model UserSession {
   id             Int           @id @default(autoincrement())
   user_id        Int
   token          String        @db.Text
-  ip_id          Int?
   device_info    String?
   session_status SessionStatus @default(active)
   login_time     DateTime?
@@ -93,20 +95,7 @@ model UserSession {
   created_at     DateTime
   updated_at     DateTime
 
-  user      User      @relation(fields: [user_id], references: [id])
-  ipAddress IpAddress? @relation(fields: [ip_id], references: [id])
-}
-
-model IpAddress {
-  id          Int      @id @default(autoincrement())
-  ip_address  String   @unique
-  location    String?
-  country     String?
-  isp         String?
-  device_info String?
-  created_at  DateTime
-
-  sessions UserSession[]
+  user User @relation(fields: [user_id], references: [id])
 }
 
 model Currency {
@@ -122,13 +111,6 @@ model Currency {
 
   openingReconciliations Reconciliation[] @relation("OpeningCurrency")
   closingReconciliations Reconciliation[] @relation("ClosingCurrency")
-}
-
-model DealStatus {
-  id         Int      @id @default(autoincrement())
-  name       String   @unique
-  created_at DateTime
-  deals      Deal[]
 }
 
 model Deal {
@@ -151,7 +133,7 @@ model Deal {
   downloaded_by        Int?
   downloaded_at        DateTime?
   is_downloaded        Boolean         @default(false)
-  status_id            Int
+  status               DealStatusEnum
   created_by           Int
   action_by            Int?
   action_at            DateTime?
@@ -159,7 +141,6 @@ model Deal {
   updated_at           DateTime
   deleted_at           DateTime?
 
-  status           DealStatus @relation(fields: [status_id], references: [id])
   receivedCurrency Currency   @relation("ReceivedCurrency", fields: [received_currency_id], references: [id])
   paidCurrency     Currency   @relation("PaidCurrency", fields: [paid_currency_id], references: [id])
   createdBy        User       @relation("DealCreatedBy", fields: [created_by], references: [id])
@@ -167,17 +148,8 @@ model Deal {
   downloadedBy     User?      @relation("DealDownloadedBy", fields: [downloaded_by], references: [id])
 }
 
-model ReconciliationStatus {
-  id         Int      @id @default(autoincrement())
-  name       String   @unique
-  created_at DateTime
-  updated_at DateTime
-
-  reconciliations Reconciliation[]
-}
-
 model Reconciliation {
-  id                   Int      @id @default(autoincrement())
+  id                   Int                    @id @default(autoincrement())
   opening_denomination Int
   opening_quantity     Int
   opening_amount       Int
@@ -186,13 +158,12 @@ model Reconciliation {
   closing_quantity     Int
   closing_amount       Int
   closing_currency_id  Int
-  status_id            Int
+  status               ReconciliationStatusEnum
   created_by           Int
   created_at           DateTime
   updated_at           DateTime
 
-  openingCurrency Currency             @relation("OpeningCurrency", fields: [opening_currency_id], references: [id])
-  closingCurrency Currency             @relation("ClosingCurrency", fields: [closing_currency_id], references: [id])
-  status          ReconciliationStatus @relation(fields: [status_id], references: [id])
-  createdBy       User                 @relation("ReconciliationCreatedBy", fields: [created_by], references: [id])
+  openingCurrency Currency @relation("OpeningCurrency", fields: [opening_currency_id], references: [id])
+  closingCurrency Currency @relation("ClosingCurrency", fields: [closing_currency_id], references: [id])
+  createdBy       User     @relation("ReconciliationCreatedBy", fields: [created_by], references: [id])
 }

@@ -2,11 +2,8 @@ const express = require('express');
 const config = require('../config/config');
 const { verifyToken } = require('../middlewares/jwt.middleware');
 const userRoute = require('./user.route');
-const roleRoute = require('./role.route');
 const authRoutes = require('./auth.route');
-const ipRoute = require('./ipaddress.route');
 const currencyRoute = require('./currency.route');
-const statusRoute = require('./status.route');
 const dealRoute = require('./deal.route');
 
 const router = express.Router();
@@ -21,20 +18,8 @@ const defaultRoutes = [
     route: userRoute
   },
   {
-    path: '/role',
-    route: roleRoute
-  },
-  {
-    path: '/ipaddress',
-    route: ipRoute
-  },
-  {
     path: '/currency',
     route: currencyRoute
-  },
-  {
-    path: '/status',
-    route: statusRoute
   },
   {
     path: '/deal',

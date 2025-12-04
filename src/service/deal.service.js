@@ -6,41 +6,54 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 
 const createDeal = async (data, userId) => {
-    try {
-        const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
-        const randomSuffix = Math.floor(Math.random() * 1000);
-        const deal_number = `DL-${timestamp}-${randomSuffix}`;
+  try {
+    const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
+    const randomSuffix = Math.floor(Math.random() * 1000);
+    const deal_number = `DL-${timestamp}-${randomSuffix}`;
 
+    const newDeal = await getdb.deal.create({
+      data: {
+        deal_number,
+        customer_name: data.customer_name,
+        phone_number: data.phone_number,
+        deal_type: data.deal_type,
+        transaction_mode: data.transaction_mode,
+        amount: data.amount,
+        rate: data.rate,
+        remarks: data.remarks || null,
+        status: data.status,
+        created_by: userId,
+        created_at: new Date(),
+        updated_at: new Date(),
+        received_items: {
+          create: (data.received_items || []).map(item => ({
+            price: item.price,
+            quantity: item.quantity,
+            total: (item.price * item.quantity).toString(),
+            currency_id: item.currency_id,
+          })),
+        },
+        paid_items: {
+          create: (data.paid_items || []).map(item => ({
+            price: item.price,
+            quantity: item.quantity,
+            total: (item.price * item.quantity).toString(),
+            currency_id: item.currency_id,
+          })),
+        },
+      },
+      include: {
+        received_items: true,
+        paid_items: true,
+      },
+    });
 
-        const newDeal = await getdb.deal.create({
-            data: {
-                deal_number: deal_number,
-                customer_name: data.customer_name,
-                deal_type: data.deal_type,
-                transaction_mode: data.transaction_mode,
-                amount: data.amount,
-                rate: data.rate,
-                received_price: data.received_price,
-                received_quantity: data.received_quantity,
-                received_currency_id: data.received_currency_id,
-                paid_price: data.paid_price,
-                paid_quantity: data.paid_quantity,
-                paid_currency_id: data.paid_currency_id,
-                remarks: data.remarks || null,
-                status_id: data.status_id,
-                created_by: userId,
-                created_at: new Date(),
-                updated_at: new Date(),
-            },
-        });
-
-        logger.info(`Deal created: ${newDeal.deal_number}`);
-        return newDeal;
-
-    } catch (error) {
-        logger.error("Failed to create deal:", error);
-        throw error;
-    }
+    logger.info(`Deal created: ${newDeal.deal_number}`);
+    return newDeal;
+  } catch (error) {
+    logger.error("Failed to create deal:", error);
+    throw error;
+  }
 };
 
 const getAllDeals = async (
@@ -109,18 +122,20 @@ const getAllDeals = async (
 
     const deals = await getdb.deal.findMany({
       where,
+      include: {
+        received_items: {
+          include: { currency: true },
+        },
+        paid_items: {
+          include: { currency: true },
+        },
+        createdBy: { select: { id: true, full_name: true, email: true } },
+        actionBy: { select: { id: true, full_name: true, email: true } },
+      },
       skip,
       take: limit,
       orderBy: {
         [orderByField]: orderDirection,
-      },
-      include: {
-        status: true,
-        receivedCurrency: true,
-        paidCurrency: true,
-        createdBy: {
-          select: { id: true, full_name: true, email: true },
-        },
       },
     });
 
@@ -192,7 +207,7 @@ const generateExcel = async (deals) => {
         rate: d.rate,
         sell_amount,
         sell_currency,
-        status: d.status?.name,
+        status: d.status,
         created_at: d.created_at.toISOString(),
         created_by: `${d.createdBy?.full_name}`,
     });
@@ -246,7 +261,7 @@ const generatePDF = async (deals) => {
         Rate: ${d.rate}
         Sell Amount: ${sell_amount}
         Sell Currency: ${sell_currency}
-        Status: ${d.status?.name}
+        Status: ${d.status}
         Created At: ${d.created_at.toISOString()}
         Created By: ${d.createdBy?.full_name}
         -----------------------------------------
@@ -266,30 +281,10 @@ const getDealById = async (id) => {
         return await getdb.deal.findUnique({
             where: { id: Number(id) },
             include: {
-                status: true,
-                receivedCurrency: true,
-                paidCurrency: true,
-                createdBy: { 
-                    select: { 
-                        id: true,
-                        full_name: true,
-                        email: true 
-                    } 
-                },
-                actionBy: { 
-                    select: { 
-                        id: true,
-                        full_name: true,
-                        email: true 
-                    } 
-                },
-                downloadedBy: { 
-                    select: { 
-                        id: true,
-                        full_name: true,
-                        email: true 
-                    } 
-                },
+              received_items: { include: { currency: true } },
+              paid_items: { include: { currency: true } },
+              createdBy: { select: { id: true, full_name: true, email: true } },
+              actionBy: { select: { id: true, full_name: true, email: true } },
             },
         });
 
@@ -299,12 +294,12 @@ const getDealById = async (id) => {
     }
 };
 
-const updateDealStatus = async (id, status_id, reason = null, userId) => {
+const updateDealStatus = async (id, status, reason = null, userId) => {
     try {
         const updated = await getdb.deal.update({
             where: { id: Number(id) },
             data: {
-                status_id,
+                status: status,
                 action_by: userId,
                 action_reason: reason,
                 action_at: new Date(),
@@ -339,17 +334,37 @@ const updateDeal = async (id, data, userId) => {
         transaction_mode: data.transaction_mode,
         amount: data.amount,
         rate: data.rate,
-        received_price: data.received_price,
-        received_quantity: data.received_quantity,
-        received_currency_id: data.received_currency_id,
-        paid_price: data.paid_price,
-        paid_quantity: data.paid_quantity,
-        paid_currency_id: data.paid_currency_id,
         remarks: data.remarks || null,
-        status_id: data.status_id,
+        status: data.status,
         action_by: userId,
         action_at: new Date(),
         updated_at: new Date(),
+
+        // Delete existing received_items and create new ones
+        received_items: {
+          deleteMany: {}, // deletes all existing for this deal
+          create: data.received_items.map(item => ({
+            price: item.price,
+            quantity: item.quantity,
+            total: (item.price * item.quantity).toString(),
+            currency_id: item.currency_id,
+          })),
+        },
+
+        // Delete existing paid_items and create new ones
+        paid_items: {
+          deleteMany: {},
+          create: data.paid_items.map(item => ({
+            price: item.price,
+            quantity: item.quantity,
+            total: (item.price * item.quantity).toString(),
+            currency_id: item.currency_id,
+          })),
+        },
+      },
+      include: {
+        received_items: true,
+        paid_items: true,
       },
     });
 

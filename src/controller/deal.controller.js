@@ -23,8 +23,8 @@ const listDealController = async (req, res) => {
       page = 1,
       limit = 10,
       search = "",
-      statusName = "",
-      currencyName = "",
+      status = "",
+      currency = "",
       orderByField = "created_at",
       orderDirection = "desc",
       dateFilter = "",
@@ -37,8 +37,8 @@ const listDealController = async (req, res) => {
       Number(page),
       Number(limit),
       search,
-      statusName,
-      currencyName,
+      status,
+      currency,
       orderByField,
       orderDirection,
       dateFilter,
@@ -89,11 +89,10 @@ const getDealControllerById = async (req, res) => {
 const updateDealStatusController = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status_id, reason } = req.body;
-    const data = { status_id, reason };
+    const { status, reason } = req.body;
     const userId = req.user
 
-    const result = await dealService.updateDealStatus(Number(id), Number(status_id), reason, Number(userId));
+    const result = await dealService.updateDealStatus(Number(id), status, reason, Number(userId));
 
     return res.status(200).json({
       message: "Deal updated successfully",

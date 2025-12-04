@@ -1,0 +1,10 @@
+const express = require("express");
+const router = express.Router();
+const reconciliationController = require("../controller/reconciliation.controller");
+
+router.post("/", reconciliationController.createReconciliation);
+router.get("/", reconciliationController.getAllReconciliations);
+router.get("/:id", reconciliationController.getReconciliationById);
+router.patch("/status/:id", reconciliationController.updateReconciliationStatus);
+
+module.exports = router;

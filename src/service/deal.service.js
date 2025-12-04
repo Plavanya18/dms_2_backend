@@ -60,8 +60,8 @@ const getAllDeals = async (
   page = 1,
   limit = 10,
   search = "",
-  statusName = "",
-  currencyName = "",
+  status = "",
+  currency = "",
   orderByField = "created_at",
   orderDirection = "desc",
   dateFilter = "",
@@ -80,21 +80,20 @@ const getAllDeals = async (
       ];
     }
 
-    
-    if (statusName) {
-      where.status = { name: { contains: statusName } };
+    if (status) {
+      where.status = status;
     }
 
-    if (currencyName) {
+    if (currency) {
       where.OR = where.OR
         ? [
             ...where.OR,
-            { receivedCurrency: { code: { contains: currencyName } } },
-            { paidCurrency: { code: { contains: currencyName } } },
+            { received_items: { some: { currency: { code: { contains: currency } } } } },
+            { paid_items: { some: { currency: { code: { contains: currency } } } } },
           ]
         : [
-            { receivedCurrency: { code: { contains: currencyName } } },
-            { paidCurrency: { code: { contains: currencyName } } },
+            { received_items: { some: { currency: { code: { contains: currency } } } } },
+            { paid_items: { some: { currency: { code: { contains: currency } } } } },
           ];
     }
 
@@ -124,10 +123,10 @@ const getAllDeals = async (
       where,
       include: {
         received_items: {
-          include: { currency: true },
+          include: { currency: { select: { id: true, code: true, name: true } } },
         },
         paid_items: {
-          include: { currency: true },
+          include: { currency: { select: { id: true, code: true, name: true } } },
         },
         createdBy: { select: { id: true, full_name: true, email: true } },
         actionBy: { select: { id: true, full_name: true, email: true } },
@@ -151,12 +150,7 @@ const getAllDeals = async (
 
     return {
       data: deals,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   } catch (error) {
     logger.error("Failed to fetch deals:", error);
@@ -174,42 +168,43 @@ const generateExcel = async (deals) => {
     { header: "Deal Type", key: "deal_type", width: 15 },
     { header: "Customer Name", key: "customer_name", width: 25 },
     { header: "Buy Amount", key: "buy_amount", width: 15 },
-    { header: "Buy Currency", key: "buy_currency", width: 15 },
+    { header: "Buy Currency", key: "buy_currency", width: 20 },
     { header: "Rate", key: "rate", width: 10 },
     { header: "Sell Amount", key: "sell_amount", width: 15 },
-    { header: "Sell Currency", key: "sell_currency", width: 15 },
+    { header: "Sell Currency", key: "sell_currency", width: 20 },
     { header: "Status", key: "status", width: 15 },
     { header: "Created At", key: "created_at", width: 20 },
     { header: "Created By", key: "created_by", width: 20 },
   ];
 
   deals.forEach((d) => {
-    let buy_amount, buy_currency, sell_amount, sell_currency;
+    const totalReceived = d.received_items.reduce((sum, i) => sum + Number(i.total), 0);
+    const totalPaid = d.paid_items.reduce((sum, i) => sum + Number(i.total), 0);
 
-    if (d.deal_type === "buy") {
-        buy_amount = d.paid_price;
-        buy_currency = d.paidCurrency?.code;
-        sell_amount = d.received_price;
-        sell_currency = d.receivedCurrency?.code;
-    } else {
-        buy_amount = d.received_price;
-        buy_currency = d.receivedCurrency?.code;
-        sell_amount = d.paid_price;
-        sell_currency = d.paidCurrency?.code;
-    }
+    const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
+    const buy_currency =
+      d.deal_type === "buy"
+        ? d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
+        : d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+    const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
+    const sell_currency =
+      d.deal_type === "buy"
+        ? d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
+        : d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+
     sheet.addRow({
-        id: d.id,
-        deal_number: d.deal_number,
-        deal_type: d.deal_type,
-        customer_name: d.customer_name,
-        buy_amount,
-        buy_currency,
-        rate: d.rate,
-        sell_amount,
-        sell_currency,
-        status: d.status,
-        created_at: d.created_at.toISOString(),
-        created_by: `${d.createdBy?.full_name}`,
+      id: d.id,
+      deal_number: d.deal_number,
+      deal_type: d.deal_type,
+      customer_name: d.customer_name,
+      buy_amount,
+      buy_currency,
+      rate: d.rate,
+      sell_amount,
+      sell_currency,
+      status: d.status,
+      created_at: d.created_at.toISOString(),
+      created_by: d.createdBy?.full_name,
     });
   });
 
@@ -236,23 +231,22 @@ const generatePDF = async (deals) => {
   doc.moveDown(1);
 
   deals.forEach((d) => {
-    let buy_amount, buy_currency, sell_amount, sell_currency;
+    const totalReceived = d.received_items.reduce((sum, i) => sum + Number(i.total), 0);
+    const totalPaid = d.paid_items.reduce((sum, i) => sum + Number(i.total), 0);
 
-    if (d.deal_type === "buy") {
-        buy_amount = d.paid_price;
-        buy_currency = d.paidCurrency?.code;
-        sell_amount = d.received_price;
-        sell_currency = d.receivedCurrency?.code;
-    } else {
-        buy_amount = d.received_price;
-        buy_currency = d.receivedCurrency?.code;
-        sell_amount = d.paid_price;
-        sell_currency = d.paidCurrency?.code;
-    }
+    const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
+    const buy_currency =
+      d.deal_type === "buy"
+        ? d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
+        : d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+    const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
+    const sell_currency =
+      d.deal_type === "buy"
+        ? d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
+        : d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
 
     doc.fontSize(12).text(
-      `
-        ID: ${d.id}
+      ` ID: ${d.id}
         Deal Number: ${d.deal_number}
         Deal Type: ${d.deal_type}
         Customer Name: ${d.customer_name}
@@ -264,8 +258,7 @@ const generatePDF = async (deals) => {
         Status: ${d.status}
         Created At: ${d.created_at.toISOString()}
         Created By: ${d.createdBy?.full_name}
-        -----------------------------------------
-      `
+        -----------------------------------------`
     );
   });
 

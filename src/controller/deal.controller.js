@@ -86,7 +86,7 @@ const getDealControllerById = async (req, res) => {
   }
 };
 
-const updateDealController = async (req, res) => {
+const updateDealStatusController = async (req, res) => {
   try {
     const { id } = req.params;
     const { status_id, reason } = req.body;
@@ -106,9 +106,29 @@ const updateDealController = async (req, res) => {
   }
 };
 
+const updateDealController = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const data = req.body;
+    const userId = req.user;
+
+    const result = await dealService.updateDeal(id, data, userId);
+
+    return res.status(200).json({
+      message: "Deal updated successfully",
+      data: result,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || "Failed to update Deal",
+    });
+  }
+};
+
 module.exports = {
   createDealController,
   listDealController,
   getDealControllerById,
+  updateDealStatusController,
   updateDealController,
 };

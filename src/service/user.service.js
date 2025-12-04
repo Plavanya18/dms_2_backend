@@ -230,19 +230,6 @@ const getLoggedInUser = async (user_id) => {
   }
 };
 
-const getUserSessions = async (user_id) => {
-  try {
-    const sessions = await getdb.userSession.findMany({
-      where: { user_id },
-      include: { ip: true },
-    });
-    return sessions;
-  } catch (error) {
-    logger.error("Failed to fetch user sessions:", error);
-    throw error;
-  }
-};
-
 const logoutUser = async (token) => {
  const session = await getdb.userSession.findFirst({
     where: { token },
@@ -319,7 +306,6 @@ module.exports = {
   getUserById,
   toggleUserActive,
   getLoggedInUser,
-  getUserSessions,
   logoutUser,
   deleteUser,
 };

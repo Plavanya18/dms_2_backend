@@ -108,16 +108,6 @@ const getLoggedInUserController = async (req, res) => {
   }
 };
 
-const getUserSessionsController = async (req, res) => {
-  try {
-    const sessions = await userService.getUserSessions(req.user.user_id);
-    res.status(200).json(sessions);
-  } catch (err) {
-    logger.error("Failed to fetch sessions:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
 const logoutController = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -168,7 +158,6 @@ module.exports = {
   getuserIdController,
   toggleUserActiveController,
   getLoggedInUserController,
-  getUserSessionsController,
   logoutController,
   deleteUser,
 };

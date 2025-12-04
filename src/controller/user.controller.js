@@ -11,8 +11,7 @@ const createUserController = async (req, res) => {
         id: user.id,
         full_name: user.full_name,
         email: user.email,
-        role_id: user.role_id,
-        role_name: user.role?.name
+        role: user.role
       },
     });
 

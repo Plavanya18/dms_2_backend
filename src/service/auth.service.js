@@ -7,15 +7,6 @@ const os = require("os");
 
 const otpStore = new Map();
 
-const getLocalIP = () => {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === "IPv4" && !iface.internal) return iface.address;
-    }
-  }
-};
-
 const loginUser = async (email, password) => {
   try {
     const timestamp = new Date();
@@ -26,7 +17,7 @@ const loginUser = async (email, password) => {
     });
 
     if (!user) throw new Error("Invalid credentials");
-    
+
     if (!user.is_active) {
       throw new Error("Your account is deactivated. Please contact admin.");
     }
@@ -36,7 +27,7 @@ const loginUser = async (email, password) => {
         where: { id: user.id },
         data: { force_logout: false, updated_at: timestamp },
       });
-      logger.info(`Force logout flag cleared for user: ${email}`);
+      logger.info(`Force logout flag cleared for: ${email}`);
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
@@ -62,7 +53,6 @@ const loginUser = async (email, password) => {
           data: {
             is_active: false,
             deactivated_at: timestamp,
-            deactivated_by: null,
             deactivation_reason: "Multiple failed login attempts",
             updated_at: timestamp,
           },
@@ -94,15 +84,9 @@ const loginUser = async (email, password) => {
       };
     }
 
-    const currentIP = await getLocalIP();
-    console.log("currentIP", currentIP);
-    const allowedIp = await getdb.ipAddress.findUnique({ where: { ip_address: currentIP } });
-    if (!allowedIp) throw new Error(`Access denied: ${currentIP} IP not whitelisted`);
-
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
     otpStore.set(email, {
       otp,
-      ip_id: allowedIp.id,
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
@@ -119,15 +103,15 @@ const loginUser = async (email, password) => {
     );
 
     return {
-      message: "OTP sent to registered email address.",
-      ip_id: allowedIp.id,
+      message: "OTP sent to your registered email address.",
       email,
     };
   } catch (error) {
-    logger.error("Login process failed:", error);
+    logger.error("Login failed:", error);
     throw new Error(error.message || "Login failed");
   }
 };
+
 
 const verifyOtp = async (email, otp, ip_id = null, device_info = null) => {
   try {
@@ -141,7 +125,7 @@ const verifyOtp = async (email, otp, ip_id = null, device_info = null) => {
 
     const user = await getdb.user.findUnique({
       where: { email },
-      include: { sessions: true , role: true},
+      include: { sessions: true },
     });
 
     if (!user) throw new Error("User not found");
@@ -189,15 +173,18 @@ const verifyOtp = async (email, otp, ip_id = null, device_info = null) => {
       logger.info(`Force logout cleared for user: ${email}`);
     }
 
-    console.log("role", user.role?.name);
+    const token = jwt.sign(
+      {
+        user_id: user.id,
+        email: user.email,
+        role: user.role || null,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
     const sessionData = {
       user_id: user.id,
-      token: jwt.sign(
-        { user_id: user.id, email: user.email, role_id: user.role_id , roleName: user.role?.name || null },
-        process.env.JWT_SECRET,
-        { expiresIn: "1d" }
-      ),
-      ip_id: ip_id ?? null,
+      token: token,
       device_info: device_info ?? null,
       session_status: "active",
       login_time: timestamp,
@@ -227,9 +214,7 @@ const verifyOtp = async (email, otp, ip_id = null, device_info = null) => {
         id: user.id,
         full_name: user.full_name,
         email: user.email,
-        role_id: user.role_id,
-        role_name: user.role?.name || null,
-        branch: user.branch,
+        role: user.role,
       },
       session_id: session.id,
     };

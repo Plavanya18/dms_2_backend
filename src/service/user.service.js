@@ -40,21 +40,13 @@ const createUser = async (data) => {
         full_name: data.full_name,
         email: data.email,
         password: hashedPassword,
-        role_id: data.role_id,
+        role: data.role, 
         phone_number: data.phone_number,
         is_active: true,
         must_change_password: true,
         created_at: timestamp,
         updated_at: timestamp,
       },
-      include:{
-        role:{
-          select:{
-            id: true,
-            name: true
-          }
-        }
-      }
     });
 
     const now = new Date();
@@ -120,14 +112,6 @@ const listUsers = async (page = 1, limit = 10, search = "", orderByField = "crea
 
     const users = await getdb.user.findMany({
       where,
-      include:{
-        role:{
-          select:{
-            id: true,
-            name: true,
-          }
-        },
-      },
       skip,
       take: limit,
       orderBy: { [orderByField]: orderDirection },
@@ -157,12 +141,6 @@ const getUserById = async (id) => {
     const user = await getdb.user.findUnique({
       where: { id: parseInt(id) },
       include: {
-        role:{
-          select:{
-            id: true,
-            name: true
-        }
-        },
         details: true,
         sessions: {
           orderBy: { login_time: "desc" },
@@ -252,19 +230,6 @@ const getLoggedInUser = async (user_id) => {
   }
 };
 
-const getUserSessions = async (user_id) => {
-  try {
-    const sessions = await getdb.userSession.findMany({
-      where: { user_id },
-      include: { ip: true },
-    });
-    return sessions;
-  } catch (error) {
-    logger.error("Failed to fetch user sessions:", error);
-    throw error;
-  }
-};
-
 const logoutUser = async (token) => {
  const session = await getdb.userSession.findFirst({
     where: { token },
@@ -341,7 +306,6 @@ module.exports = {
   getUserById,
   toggleUserActive,
   getLoggedInUser,
-  getUserSessions,
   logoutUser,
   deleteUser,
 };

@@ -7,6 +7,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum RoleEnum {
+  Maker
+  Checker
+}
+
 enum DealType {
   buy
   sell
@@ -17,21 +22,24 @@ enum TransactionMode {
   credit
 }
 
+enum DealStatusEnum {
+  Pending
+  Completed
+  Reject
+  Approve
+}
+
+enum ReconciliationStatusEnum {
+  Tallied
+  Short
+  Excess
+}
+
 enum SessionStatus {
   active
   inactive
   terminated
   timeout
-}
-
-model Role {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?
-  created_at  DateTime
-  updated_at  DateTime
-
-  users User[]
 }
 
 model User {
@@ -40,7 +48,7 @@ model User {
   email                 String    @unique
   password              String
   phone_number          String
-  role_id               Int
+  role                  RoleEnum
   is_active             Boolean
   must_change_password  Boolean
   password_last_changed DateTime?
@@ -54,17 +62,11 @@ model User {
   updated_at            DateTime
   deleted_at            DateTime?
 
-  role                  Role             @relation(fields: [role_id], references: [id])
-  deactivatedByUser     User?            @relation("UserDeactivatedBy", fields: [deactivated_by], references: [id])
-  deactivatedUsers      User[]           @relation("UserDeactivatedBy")
-  deletedByUser         User?            @relation("UserDeletedBy", fields: [deleted_by], references: [id])
-  deletedUsers          User[]           @relation("UserDeletedBy")
-  details               UserDetail?
-  sessions              UserSession[]
-  dealsCreated          Deal[]           @relation("DealCreatedBy")
-  dealsActionBy         Deal[]           @relation("DealActionBy")
-  dealDownloadedRecords Deal[]           @relation("DealDownloadedBy")
-  reconciliations       Reconciliation[] @relation("ReconciliationCreatedBy")
+  details         UserDetail?
+  sessions        UserSession[]
+  dealsCreated    Deal[]           @relation("DealCreatedBy")
+  dealsActionBy   Deal[]           @relation("DealActionBy")
+  reconciliations Reconciliation[] @relation("ReconciliationCreatedBy")
 }
 
 model UserDetail {
@@ -84,7 +86,6 @@ model UserSession {
   id             Int           @id @default(autoincrement())
   user_id        Int
   token          String        @db.Text
-  ip_id          Int?
   device_info    String?
   session_status SessionStatus @default(active)
   login_time     DateTime?
@@ -93,20 +94,7 @@ model UserSession {
   created_at     DateTime
   updated_at     DateTime
 
-  user      User      @relation(fields: [user_id], references: [id])
-  ipAddress IpAddress? @relation(fields: [ip_id], references: [id])
-}
-
-model IpAddress {
-  id          Int      @id @default(autoincrement())
-  ip_address  String   @unique
-  location    String?
-  country     String?
-  isp         String?
-  device_info String?
-  created_at  DateTime
-
-  sessions UserSession[]
+  user User @relation(fields: [user_id], references: [id])
 }
 
 model Currency {
@@ -117,82 +105,106 @@ model Currency {
   created_at DateTime
   updated_at DateTime
 
-  receivedDeals Deal[] @relation("ReceivedCurrency")
-  paidDeals     Deal[] @relation("PaidCurrency")
+  receivedEntries DealReceived[]
+  paidEntries     DealPaid[]
 
-  openingReconciliations Reconciliation[] @relation("OpeningCurrency")
-  closingReconciliations Reconciliation[] @relation("ClosingCurrency")
-}
-
-model DealStatus {
-  id         Int      @id @default(autoincrement())
-  name       String   @unique
-  created_at DateTime
-  deals      Deal[]
+  openingReconciliations ReconciliationOpening[]
+  closingReconciliations ReconciliationClosing[]
 }
 
 model Deal {
-  id                   Int             @id @default(autoincrement())
-  deal_number          String          @unique
-  customer_name        String
-  deal_type            DealType
-  transaction_mode     TransactionMode
-  amount               Decimal
-  rate                 Decimal
-  received_price       String?
-  received_quantity    String?
-  received_currency_id Int
-  paid_price           String?
-  paid_quantity        String?
-  paid_currency_id     Int
-  remarks              String?
-  action_reason        String?
-  download_file_path   String?
-  downloaded_by        Int?
-  downloaded_at        DateTime?
-  is_downloaded        Boolean         @default(false)
-  status_id            Int
-  created_by           Int
-  action_by            Int?
-  action_at            DateTime?
-  created_at           DateTime
-  updated_at           DateTime
-  deleted_at           DateTime?
+  id               Int             @id @default(autoincrement())
+  deal_number      String          @unique
+  customer_name    String
+  phone_number     String
+  deal_type        DealType
+  transaction_mode TransactionMode
+  amount           Decimal
+  rate             Decimal
+  remarks          String?
+  action_reason    String?
+  status           DealStatusEnum
+  created_by       Int
+  action_by        Int?
+  action_at        DateTime?
+  created_at       DateTime
+  updated_at       DateTime
+  deleted_at       DateTime?
 
-  status           DealStatus @relation(fields: [status_id], references: [id])
-  receivedCurrency Currency   @relation("ReceivedCurrency", fields: [received_currency_id], references: [id])
-  paidCurrency     Currency   @relation("PaidCurrency", fields: [paid_currency_id], references: [id])
-  createdBy        User       @relation("DealCreatedBy", fields: [created_by], references: [id])
-  actionBy         User?      @relation("DealActionBy", fields: [action_by], references: [id])
-  downloadedBy     User?      @relation("DealDownloadedBy", fields: [downloaded_by], references: [id])
+  createdBy User  @relation("DealCreatedBy", fields: [created_by], references: [id])
+  actionBy  User? @relation("DealActionBy", fields: [action_by], references: [id])
+
+  received_items DealReceived[]
+  paid_items     DealPaid[]
 }
 
-model ReconciliationStatus {
-  id         Int      @id @default(autoincrement())
-  name       String   @unique
-  created_at DateTime
-  updated_at DateTime
+model DealReceived {
+  id          Int    @id @default(autoincrement())
+  deal_id     Int
+  price       String
+  quantity    String
+  total       String
+  currency_id Int
 
-  reconciliations Reconciliation[]
+  deal     Deal     @relation(fields: [deal_id], references: [id])
+  currency Currency @relation(fields: [currency_id], references: [id])
+}
+
+model DealPaid {
+  id          Int    @id @default(autoincrement())
+  deal_id     Int
+  price       String
+  quantity    String
+  total       String
+  currency_id Int
+
+  deal     Deal     @relation(fields: [deal_id], references: [id])
+  currency Currency @relation(fields: [currency_id], references: [id])
 }
 
 model Reconciliation {
-  id                   Int      @id @default(autoincrement())
-  opening_denomination Int
-  opening_quantity     Int
-  opening_amount       Int
-  opening_currency_id  Int
-  closing_denomination Int
-  closing_quantity     Int
-  closing_amount       Int
-  closing_currency_id  Int
-  status_id            Int
-  created_by           Int
-  created_at           DateTime
-  updated_at           DateTime
+  id         Int                      @id @default(autoincrement())
+  status     ReconciliationStatusEnum
+  created_by Int
+  created_at DateTime
+  updated_at DateTime
 
-  openingCurrency Currency             @relation("OpeningCurrency", fields: [opening_currency_id], references: [id])
-  closingCurrency Currency             @relation("ClosingCurrency", fields: [closing_currency_id], references: [id])
-  status          ReconciliationStatus @relation(fields: [status_id], references: [id])
-  createdBy       User                 @relation("ReconciliationCreatedBy", fields: [created_by], references: [id])
+  createdBy User @relation("ReconciliationCreatedBy", fields: [created_by], references: [id])
+
+  openingEntries ReconciliationOpening[]
+  closingEntries ReconciliationClosing[]
+  notes          ReconciliationNote[]
+}
+
+model ReconciliationOpening {
+  id                Int @id @default(autoincrement())
+  reconciliation_id Int
+  denomination      Int
+  quantity          Int
+  amount            Int
+  currency_id       Int
+
+  reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
+  currency       Currency       @relation(fields: [currency_id], references: [id])
+}
+
+model ReconciliationClosing {
+  id                Int @id @default(autoincrement())
+  reconciliation_id Int
+  denomination      Int
+  quantity          Int
+  amount            Int
+  currency_id       Int
+
+  reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
+  currency       Currency       @relation(fields: [currency_id], references: [id])
+}
+
+model ReconciliationNote {
+  id                Int      @id @default(autoincrement())
+  reconciliation_id Int
+  note              String
+  created_at        DateTime @default(now())
+
+  reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
 }

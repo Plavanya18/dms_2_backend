@@ -24,8 +24,7 @@ const verifyOtpController = async (req, res) => {
         user_id: result.user.id,
         full_name: result.user.full_name,
         email: result.user.email,
-        role_id: result.user.role_id,
-        role_name: result.user.role_name,
+        role: result.user.role,
         branch: result.user.branch,
         token: result.token,
       }

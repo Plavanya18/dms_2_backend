@@ -19,15 +19,40 @@ const createDealController = async (req, res) => {
 
 const listDealController = async (req, res) => {
   try {
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-    const search = req.query.search || "";
-    const statusName = req.query.statusName || "";
-    const currencyName = req.query.currencyName || "";
-    const orderByField = req.query.orderByField || "created_at";
-    const orderDirection = req.query.orderDirection || "desc";
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      statusName = "",
+      currencyName = "",
+      orderByField = "created_at",
+      orderDirection = "desc",
+      dateFilter = "",
+      startDate = "",
+      endDate = "",
+      format = ""
+    } = req.query;
 
-    const result = await dealService.getAllDeals(page, limit, search, statusName, currencyName, orderByField, orderDirection);
+    const result = await dealService.getAllDeals(
+      Number(page),
+      Number(limit),
+      search,
+      statusName,
+      currencyName,
+      orderByField,
+      orderDirection,
+      dateFilter,
+      startDate,
+      endDate,
+      format
+    );
+
+    if (result.filePath) {
+      return res.status(200).json({
+        message: "File generated successfully",
+        downloadUrl: `/download-temp-file?path=${encodeURIComponent(result.filePath)}`
+      });
+    }
 
     return res.status(200).json({
       message: "Deal list fetched successfully",

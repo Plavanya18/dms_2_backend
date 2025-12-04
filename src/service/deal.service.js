@@ -1,5 +1,9 @@
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
+const path = require("path");
+const fs = require("fs");
+const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
 
 const createDeal = async (data, userId) => {
     try {
@@ -40,80 +44,221 @@ const createDeal = async (data, userId) => {
 };
 
 const getAllDeals = async (
-    page = 1,
-    limit = 10,
-    search = "",
-    statusName = "",
-    currencyName = "",
-    orderByField = "created_at",
-    orderDirection = "desc"
+  page = 1,
+  limit = 10,
+  search = "",
+  statusName = "",
+  currencyName = "",
+  orderByField = "created_at",
+  orderDirection = "desc",
+  dateFilter = "",
+  startDate = "",
+  endDate = "",
+  format = ""
 ) => {
-    try {
-        const skip = (page - 1) * limit;
+  try {
+    const skip = (page - 1) * limit;
+    const where = {};
 
-        const where = search
-            ? {
-                OR: [
-                    { deal_number: { contains: search } },
-                    { customer_name: { contains: search } },
-                ],
-            }
-            : {};
-            
-        if (statusName) {
-            where.status = { name: { contains: statusName} };
-        }
-
-        if (currencyName) {
-            where.OR = where.OR
-                ? [
-                    ...where.OR,
-                    { receivedCurrency: { code: { contains: currencyName} } },
-                    { paidCurrency: { code: { contains: currencyName} } }
-                  ]
-                : [
-                    { receivedCurrency: { code: { contains: currencyName} } },
-                    { paidCurrency: { code: { contains: currencyName} } }
-                  ];
-        }
-
-        const total = await getdb.deal.count({ where });
-
-        const deals = await getdb.deal.findMany({
-            where,
-            skip,
-            take: limit,
-            orderBy: { 
-                [orderByField]: orderDirection 
-            },
-            include: {
-                status: true,
-                receivedCurrency: true,
-                paidCurrency: true,
-                createdBy: {
-                    select: {
-                        id: true,
-                        full_name: true,
-                        email: true
-                    }
-                },
-            },
-        });
-
-        return {
-            data: deals,
-            pagination: {
-                total,
-                page,
-                limit,
-                totalPages: Math.ceil(total / limit),
-            },
-        };
-
-    } catch (error) {
-        logger.error("Failed to fetch deals:", error);
-        throw error;
+    if (search) {
+      where.OR = [
+        { deal_number: { contains: search } },
+        { customer_name: { contains: search } },
+      ];
     }
+
+    
+    if (statusName) {
+      where.status = { name: { contains: statusName } };
+    }
+
+    if (currencyName) {
+      where.OR = where.OR
+        ? [
+            ...where.OR,
+            { receivedCurrency: { code: { contains: currencyName } } },
+            { paidCurrency: { code: { contains: currencyName } } },
+          ]
+        : [
+            { receivedCurrency: { code: { contains: currencyName } } },
+            { paidCurrency: { code: { contains: currencyName } } },
+          ];
+    }
+
+    const now = new Date();
+    let fromDate = null;
+
+    if (dateFilter === "last7") {
+      fromDate = new Date(now.setDate(now.getDate() - 7));
+    } else if (dateFilter === "last30") {
+      fromDate = new Date(now.setDate(now.getDate() - 30));
+    } else if (dateFilter === "last90") {
+      fromDate = new Date(now.setDate(now.getDate() - 90));
+    } else if (dateFilter === "custom" && startDate && endDate) {
+      where.created_at = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      };
+    }
+
+    if (fromDate && dateFilter !== "custom") {
+      where.created_at = { gte: fromDate };
+    }
+
+    const total = await getdb.deal.count({ where });
+
+    const deals = await getdb.deal.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: {
+        [orderByField]: orderDirection,
+      },
+      include: {
+        status: true,
+        receivedCurrency: true,
+        paidCurrency: true,
+        createdBy: {
+          select: { id: true, full_name: true, email: true },
+        },
+      },
+    });
+
+    if (format === "pdf") {
+      const filePath = await generatePDF(deals);
+      return { filePath };
+    }
+
+    if (format === "excel") {
+      const filePath = await generateExcel(deals);
+      return { filePath };
+    }
+
+    return {
+      data: deals,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  } catch (error) {
+    logger.error("Failed to fetch deals:", error);
+    throw error;
+  }
+};
+
+const generateExcel = async (deals) => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Deals");
+
+  sheet.columns = [
+    { header: "ID", key: "id", width: 10 },
+    { header: "Deal Number", key: "deal_number", width: 20 },
+    { header: "Deal Type", key: "deal_type", width: 15 },
+    { header: "Customer Name", key: "customer_name", width: 25 },
+    { header: "Buy Amount", key: "buy_amount", width: 15 },
+    { header: "Buy Currency", key: "buy_currency", width: 15 },
+    { header: "Rate", key: "rate", width: 10 },
+    { header: "Sell Amount", key: "sell_amount", width: 15 },
+    { header: "Sell Currency", key: "sell_currency", width: 15 },
+    { header: "Status", key: "status", width: 15 },
+    { header: "Created At", key: "created_at", width: 20 },
+    { header: "Created By", key: "created_by", width: 20 },
+  ];
+
+  deals.forEach((d) => {
+    let buy_amount, buy_currency, sell_amount, sell_currency;
+
+    if (d.deal_type === "buy") {
+        buy_amount = d.paid_price;
+        buy_currency = d.paidCurrency?.code;
+        sell_amount = d.received_price;
+        sell_currency = d.receivedCurrency?.code;
+    } else {
+        buy_amount = d.received_price;
+        buy_currency = d.receivedCurrency?.code;
+        sell_amount = d.paid_price;
+        sell_currency = d.paidCurrency?.code;
+    }
+    sheet.addRow({
+        id: d.id,
+        deal_number: d.deal_number,
+        deal_type: d.deal_type,
+        customer_name: d.customer_name,
+        buy_amount,
+        buy_currency,
+        rate: d.rate,
+        sell_amount,
+        sell_currency,
+        status: d.status?.name,
+        created_at: d.created_at.toISOString(),
+        created_by: `${d.createdBy?.full_name}`,
+    });
+  });
+
+  const folder = path.join(__dirname, "../downloads");
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+
+  const filePath = path.join(folder, `deals_${Date.now()}.xlsx`);
+  await workbook.xlsx.writeFile(filePath);
+
+  return filePath;
+};
+
+const generatePDF = async (deals) => {
+  const folder = path.join(__dirname, "../downloads");
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+
+  const filePath = path.join(folder, `deals_${Date.now()}.pdf`);
+  const doc = new PDFDocument();
+
+  const writeStream = fs.createWriteStream(filePath);
+  doc.pipe(writeStream);
+
+  doc.fontSize(18).text("Deals Report", { underline: true });
+  doc.moveDown(1);
+
+  deals.forEach((d) => {
+    let buy_amount, buy_currency, sell_amount, sell_currency;
+
+    if (d.deal_type === "buy") {
+        buy_amount = d.paid_price;
+        buy_currency = d.paidCurrency?.code;
+        sell_amount = d.received_price;
+        sell_currency = d.receivedCurrency?.code;
+    } else {
+        buy_amount = d.received_price;
+        buy_currency = d.receivedCurrency?.code;
+        sell_amount = d.paid_price;
+        sell_currency = d.paidCurrency?.code;
+    }
+
+    doc.fontSize(12).text(
+      `
+        ID: ${d.id}
+        Deal Number: ${d.deal_number}
+        Deal Type: ${d.deal_type}
+        Customer Name: ${d.customer_name}
+        Buy Amount: ${buy_amount}
+        Buy Currency: ${buy_currency}
+        Rate: ${d.rate}
+        Sell Amount: ${sell_amount}
+        Sell Currency: ${sell_currency}
+        Status: ${d.status?.name}
+        Created At: ${d.created_at.toISOString()}
+        Created By: ${d.createdBy?.full_name}
+        -----------------------------------------
+      `
+    );
+  });
+
+  doc.end();
+
+  return new Promise((resolve) => {
+    writeStream.on("finish", () => resolve(filePath));
+  });
 };
 
 const getDealById = async (id) => {

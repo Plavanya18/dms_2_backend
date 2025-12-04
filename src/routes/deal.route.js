@@ -5,6 +5,7 @@ const dealController = require("../controller/deal.controller");
 router.post("/", dealController.createDealController);
 router.get("/", dealController.listDealController);
 router.get("/:id", dealController.getDealControllerById);
-router.put("/:id", dealController.updateDealController);
+router.put("/:id", dealController.updateDealStatusController);
+router.patch("/:id", dealController.updateDealController);
 
 module.exports = router;

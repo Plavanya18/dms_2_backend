@@ -321,10 +321,52 @@ const updateDealStatus = async (id, status_id, reason = null, userId) => {
     }
 };
 
+const updateDeal = async (id, data, userId) => {
+  try {
+    const existingDeal = await getdb.deal.findUnique({
+      where: { id: Number(id) },
+    });
+
+    if (!existingDeal) {
+      throw new Error("Deal not found");
+    }
+
+    const updatedDeal = await getdb.deal.update({
+      where: { id: Number(id) },
+      data: {
+        customer_name: data.customer_name,
+        deal_type: data.deal_type,
+        transaction_mode: data.transaction_mode,
+        amount: data.amount,
+        rate: data.rate,
+        received_price: data.received_price,
+        received_quantity: data.received_quantity,
+        received_currency_id: data.received_currency_id,
+        paid_price: data.paid_price,
+        paid_quantity: data.paid_quantity,
+        paid_currency_id: data.paid_currency_id,
+        remarks: data.remarks || null,
+        status_id: data.status_id,
+        action_by: userId,
+        action_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    logger.info(`Deal updated: ${updatedDeal.deal_number}`);
+    return updatedDeal;
+
+  } catch (error) {
+    logger.error("Failed to update deal:", error.message);
+    throw error;
+  }
+};
+
 module.exports = {
     createDeal,
     getAllDeals,
     getDealById,
     updateDealStatus,
+    updateDeal,
 };
 

@@ -13,42 +13,51 @@ const createReconciliation = async (req, res) => {
 };
 
 const getAllReconciliations = async (req, res) => {
-    try {
-        const {
-            page = 1,
-            limit = 10,
-            dateFilter = "today",
-            startDate,
-            endDate,
-            status,
-        } = req.query;
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      dateFilter = "today",
+      startDate,
+      endDate,
+      status,
+      format,
+    } = req.query;
 
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
 
-        const recs = await reconciliationService.getAllReconciliations({
-            page: pageNum,
-            limit: limitNum,
-            dateFilter,
-            startDate,
-            endDate,
-            status,
-        });
+    const result = await reconciliationService.getAllReconciliations({
+      page: pageNum,
+      limit: limitNum,
+      dateFilter,
+      startDate,
+      endDate,
+      status,
+      format,
+    });
 
-        return res.json({
-            message: "Reconciliations fetched successfully",
-            data: recs.data,
-            pagination: {
-                total: recs.total,
-                page: pageNum,
-                limit: limitNum,
-                totalPages: Math.ceil(recs.total / limitNum),
-            },
-        });
-    } catch (err) {
-        logger.error("Failed to fetch reconciliations:", err);
-        return res.status(500).json({ message: err.message });
+    if (result.filePath) {
+      return res.status(200).json({
+        message: "File generated successfully",
+        downloadUrl: `/download-temp-file?path=${encodeURIComponent(result.filePath)}`,
+      });
     }
+
+    return res.json({
+      message: "Reconciliations fetched successfully",
+      data: result.data,
+      pagination: {
+        total: result.total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(result.total / limitNum),
+      },
+    });
+  } catch (err) {
+    logger.error("Failed to fetch reconciliations:", err);
+    return res.status(500).json({ message: err.message });
+  }
 };
 
 const getReconciliationById = async (req, res) => {

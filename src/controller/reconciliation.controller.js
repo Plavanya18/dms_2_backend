@@ -1,3 +1,4 @@
+const logger = require("../config/logger");
 const reconciliationService = require("../service/reconciliation.service");
 
 const createReconciliation = async (req, res) => {
@@ -13,9 +14,39 @@ const createReconciliation = async (req, res) => {
 
 const getAllReconciliations = async (req, res) => {
     try {
-        const recs = await reconciliationService.getAllReconciliations();
-        return res.json({ message: "Reconciliations fetched successfully", data: recs });
+        const {
+            page = 1,
+            limit = 10,
+            dateFilter = "today",
+            startDate,
+            endDate,
+            status,
+        } = req.query;
+
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+
+        const recs = await reconciliationService.getAllReconciliations({
+            page: pageNum,
+            limit: limitNum,
+            dateFilter,
+            startDate,
+            endDate,
+            status,
+        });
+
+        return res.json({
+            message: "Reconciliations fetched successfully",
+            data: recs.data,
+            pagination: {
+                total: recs.total,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(recs.total / limitNum),
+            },
+        });
     } catch (err) {
+        logger.error("Failed to fetch reconciliations:", err);
         return res.status(500).json({ message: err.message });
     }
 };

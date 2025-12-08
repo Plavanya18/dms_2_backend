@@ -274,6 +274,37 @@ Notes: ${notesStr}
   });
 };
 
+const getReconciliationAlerts = async () => {
+  const result = await getdb.reconciliation.findMany({
+    where: {
+      status: {
+        in: ["Short", "Excess"],
+      },
+    },
+    orderBy: {
+      created_at: "desc",
+    },
+    include: {
+      createdBy: {
+        select: { id: true, full_name: true, email: true },
+      },
+    },
+  });
+
+  const formatted = result.map((item) => {
+    const date = new Date(item.created_at);
+    const formattedDate = date.toLocaleDateString("en-GB");
+    const { updated_at, ...rest } = item;
+    
+    return {
+      ...rest,
+      created_at: formattedDate,
+    };
+  });
+
+  return formatted;
+};
+
 const getReconciliationById = async (id) => {
     try {
         const rec = await getdb.reconciliation.findUnique({
@@ -322,6 +353,7 @@ const updateReconciliationStatus = async (id, status, notes, userId) => {
 module.exports = {
     createReconciliation,
     getAllReconciliations,
+    getReconciliationAlerts,
     getReconciliationById,
     updateReconciliationStatus,
 };

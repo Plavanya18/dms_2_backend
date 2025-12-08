@@ -138,19 +138,84 @@ const getAllDeals = async (
       },
     });
 
+    const endToday = new Date();
+    endToday.setHours(23, 59, 59, 999);
+
+    const startToday = new Date();
+    startToday.setHours(0, 0, 0, 0);
+
+    const endYesterday = new Date(startToday);
+    endYesterday.setHours(23, 59, 59, 999);
+
+    const startYesterday = new Date(startToday);
+    startYesterday.setDate(startYesterday.getDate() - 1);
+
+    const todayDeals = await getdb.deal.findMany({
+      where: {
+        created_at: { gte: startToday, lte: endToday }
+      }
+    });
+
+    const yesterdayDeals = await getdb.deal.findMany({
+      where: {
+        created_at: { gte: startYesterday, lte: endYesterday }
+      }
+    });
+
+    const calculateTotals = (data) => {
+      let buyAmount = 0;
+      let sellAmount = 0;
+
+      data.forEach((d) => {
+        const amt = Number(d.amount);
+        if (d.deal_type === "buy") buyAmount += amt;
+        if (d.deal_type === "sell") sellAmount += amt;
+      });
+
+      return {
+        buyAmount,
+        sellAmount,
+        profit: sellAmount - buyAmount,
+      };
+    };
+
+    const today = calculateTotals(todayDeals);
+    const yesterday = calculateTotals(yesterdayDeals);
+
+    const percentage = (todayVal, yestVal) => {
+      if (yestVal === 0) return todayVal > 0 ? 100 : 0;
+      return ((todayVal - yestVal) / yestVal) * 100;
+    };
+
+    const stats = {
+      today: {
+        dealCount: todayDeals.length,
+        buyAmount: today.buyAmount,
+        sellAmount: today.sellAmount,
+        profit: today.profit,
+      },
+      yesterdayPercentage: {
+        dealCount: percentage(todayDeals.length, yesterdayDeals.length),
+        buyAmount: percentage(today.buyAmount, yesterday.buyAmount),
+        sellAmount: percentage(today.sellAmount, yesterday.sellAmount),
+        profit: percentage(today.profit, yesterday.profit),
+      },
+    };
+
     if (format === "pdf") {
       const filePath = await generatePDF(deals);
-      return { filePath };
+      return { filePath, stats };
     }
 
     if (format === "excel") {
       const filePath = await generateExcel(deals);
-      return { filePath };
+      return { filePath, stats };
     }
 
     return {
       data: deals,
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      stats,
     };
   } catch (error) {
     logger.error("Failed to fetch deals:", error);

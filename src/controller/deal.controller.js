@@ -58,6 +58,7 @@ const listDealController = async (req, res) => {
       message: "Deal list fetched successfully",
       data: result.data,
       pagination: result.pagination,
+      stats: result.stats,
     });
   } catch (error) {
     return res.status(400).json({

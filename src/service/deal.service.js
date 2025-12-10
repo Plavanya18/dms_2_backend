@@ -188,7 +188,7 @@ const getAllDeals = async (
 
     const percentage = (todayVal, yestVal) => {
       if (yestVal === 0) return todayVal > 0 ? 100 : 0;
-      return ((todayVal - yestVal) / yestVal) * 100;
+      return Number((((todayVal - yestVal) / yestVal) * 100).toFixed(2));
     };
 
     const stats = {

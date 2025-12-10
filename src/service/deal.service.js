@@ -133,9 +133,24 @@ const getAllDeals = async (
       },
       skip,
       take: limit,
-      orderBy: {
-        [orderByField]: orderDirection,
-      },
+      orderBy: { [orderByField]: orderDirection },
+    });
+
+    const dealsWithTotals = deals.map((deal) => {
+      const buyAmount = deal.paid_items.reduce((acc, item) => acc + Number(item.total || 0), 0);
+      const sellAmount = deal.received_items.reduce((acc, item) => acc + Number(item.total || 0), 0);
+
+      const buyCurrency = deal.paid_items.length > 0 ? deal.paid_items[0].currency.code : null;
+      const sellCurrency = deal.received_items.length > 0 ? deal.received_items[0].currency.code : null;
+
+      return {
+        ...deal,
+        buyAmount,
+        sellAmount,
+        buyCurrency,
+        sellCurrency,
+        profit: sellAmount - buyAmount,
+      };
     });
 
     const endToday = new Date();
@@ -151,32 +166,21 @@ const getAllDeals = async (
     startYesterday.setDate(startYesterday.getDate() - 1);
 
     const todayDeals = await getdb.deal.findMany({
-      where: {
-        created_at: { gte: startToday, lte: endToday }
-      }
+      where: { created_at: { gte: startToday, lte: endToday } },
+      include: { received_items: true, paid_items: true },
     });
-
     const yesterdayDeals = await getdb.deal.findMany({
-      where: {
-        created_at: { gte: startYesterday, lte: endYesterday }
-      }
+      where: { created_at: { gte: startYesterday, lte: endYesterday } },
+      include: { received_items: true, paid_items: true },
     });
 
     const calculateTotals = (data) => {
-      let buyAmount = 0;
-      let sellAmount = 0;
-
+      let buyAmount = 0, sellAmount = 0;
       data.forEach((d) => {
-        const amt = Number(d.amount);
-        if (d.deal_type === "buy") buyAmount += amt;
-        if (d.deal_type === "sell") sellAmount += amt;
+        buyAmount += d.paid_items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+        sellAmount += d.received_items.reduce((sum, item) => sum + Number(item.total || 0), 0);
       });
-
-      return {
-        buyAmount,
-        sellAmount,
-        profit: sellAmount - buyAmount,
-      };
+      return { buyAmount, sellAmount, profit: sellAmount - buyAmount };
     };
 
     const today = calculateTotals(todayDeals);
@@ -203,17 +207,17 @@ const getAllDeals = async (
     };
 
     if (format === "pdf") {
-      const filePath = await generatePDF(deals);
+      const filePath = await generatePDF(dealsWithTotals);
       return { filePath, stats };
     }
 
     if (format === "excel") {
-      const filePath = await generateExcel(deals);
+      const filePath = await generateExcel(dealsWithTotals);
       return { filePath, stats };
     }
 
     return {
-      data: deals,
+      data: dealsWithTotals,
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
       stats,
     };

@@ -166,20 +166,20 @@ const getAllDeals = async (
     });
 
     const dealsWithTotals = deals.map((deal) => {
-      const buyAmount = (deal.paid_items || []).reduce(
+      const sellAmount = (deal.paid_items || []).reduce(
         (acc, item) => acc + Number(item.total || 0),
         0
       );
 
-      const sellAmount = (deal.received_items || []).reduce(
+      const buyAmount = (deal.received_items || []).reduce(
         (acc, item) => acc + Number(item.total || 0),
         0
       );
-
-      const buyCurrency =
-        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
 
       const sellCurrency =
+        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
+
+      const buyCurrency =
         deal.received_items?.length > 0 ? deal.received_items[0].currency.code : null;
 
       return {
@@ -188,7 +188,7 @@ const getAllDeals = async (
         sellAmount,
         buyCurrency,
         sellCurrency,
-        profit: sellAmount - buyAmount,
+        profit: buyAmount - sellAmount,
       };
     });
 
@@ -219,18 +219,18 @@ const getAllDeals = async (
         sellAmount = 0;
 
       data.forEach((d) => {
-        buyAmount += (d.paid_items || []).reduce(
+        sellAmount += (d.paid_items || []).reduce(
           (sum, item) => sum + Number(item.total || 0),
           0
         );
 
-        sellAmount += (d.received_items || []).reduce(
+        buyAmount += (d.received_items || []).reduce(
           (sum, item) => sum + Number(item.total || 0),
           0
         );
       });
 
-      return { buyAmount, sellAmount, profit: sellAmount - buyAmount };
+      return { buyAmount, sellAmount, profit: buyAmount - sellAmount  };
     };
 
     const today = calculateTotals(todayDeals);

@@ -100,6 +100,16 @@ const getAllDeals = async (
     const now = new Date();
     let fromDate = null;
 
+  if (dateFilter === "today") {
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    where.created_at = {
+      gte: startToday,
+      lte: endToday,
+    };
+  }
+
     if (dateFilter === "last7") {
       fromDate = new Date(now.setDate(now.getDate() - 7));
     } else if (dateFilter === "last30") {
@@ -137,11 +147,21 @@ const getAllDeals = async (
     });
 
     const dealsWithTotals = deals.map((deal) => {
-      const buyAmount = deal.paid_items.reduce((acc, item) => acc + Number(item.total || 0), 0);
-      const sellAmount = deal.received_items.reduce((acc, item) => acc + Number(item.total || 0), 0);
+      const buyAmount = (deal.paid_items || []).reduce(
+        (acc, item) => acc + Number(item.total || 0),
+        0
+      );
 
-      const buyCurrency = deal.paid_items.length > 0 ? deal.paid_items[0].currency.code : null;
-      const sellCurrency = deal.received_items.length > 0 ? deal.received_items[0].currency.code : null;
+      const sellAmount = (deal.received_items || []).reduce(
+        (acc, item) => acc + Number(item.total || 0),
+        0
+      );
+
+      const buyCurrency =
+        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
+
+      const sellCurrency =
+        deal.received_items?.length > 0 ? deal.received_items[0].currency.code : null;
 
       return {
         ...deal,
@@ -169,17 +189,28 @@ const getAllDeals = async (
       where: { created_at: { gte: startToday, lte: endToday } },
       include: { received_items: true, paid_items: true },
     });
+
     const yesterdayDeals = await getdb.deal.findMany({
       where: { created_at: { gte: startYesterday, lte: endYesterday } },
       include: { received_items: true, paid_items: true },
     });
 
     const calculateTotals = (data) => {
-      let buyAmount = 0, sellAmount = 0;
+      let buyAmount = 0,
+        sellAmount = 0;
+
       data.forEach((d) => {
-        buyAmount += d.paid_items.reduce((sum, item) => sum + Number(item.total || 0), 0);
-        sellAmount += d.received_items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+        buyAmount += (d.paid_items || []).reduce(
+          (sum, item) => sum + Number(item.total || 0),
+          0
+        );
+
+        sellAmount += (d.received_items || []).reduce(
+          (sum, item) => sum + Number(item.total || 0),
+          0
+        );
       });
+
       return { buyAmount, sellAmount, profit: sellAmount - buyAmount };
     };
 

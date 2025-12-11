@@ -113,7 +113,7 @@ const loginUser = async (email, password) => {
 };
 
 
-const verifyOtp = async (email, otp, ip_id = null, device_info = null) => {
+const verifyOtp = async (email, otp, ip_id = null) => {
   try {
     const timestamp = new Date();
 
@@ -185,7 +185,6 @@ const verifyOtp = async (email, otp, ip_id = null, device_info = null) => {
     const sessionData = {
       user_id: user.id,
       token: token,
-      device_info: device_info ?? null,
       session_status: "active",
       login_time: timestamp,
       last_activity: timestamp,

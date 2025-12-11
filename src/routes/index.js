@@ -6,7 +6,7 @@ const authRoutes = require('./auth.route');
 const currencyRoute = require('./currency.route');
 const dealRoute = require('./deal.route');
 const reconciliationRoute = require('./reconciliation.route');
-
+const customerRoute = require('./customer.route');
 const router = express.Router();
 
 const defaultRoutes = [
@@ -30,6 +30,10 @@ const defaultRoutes = [
     path: '/reconciliation',
     route: reconciliationRoute
   },
+  {
+    path: '/customer',
+    route: customerRoute
+  }
 ];
 
 const publicPaths = [

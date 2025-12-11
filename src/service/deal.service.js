@@ -7,14 +7,32 @@ const PDFDocument = require("pdfkit");
 
 const createDeal = async (data, userId) => {
   try {
-    const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
-    const randomSuffix = Math.floor(Math.random() * 1000);
-    const deal_number = `DL-${timestamp}-${randomSuffix}`;
+    const today = new Date();
+    const datePart = `${String(today.getDate()).padStart(2, "0")}${String(today.getMonth() + 1).padStart(2, "0")}`;
+
+    const lastDeal = await getdb.deal.findFirst({
+      where: {
+        deal_number: {
+          startsWith: `DL-${datePart}-`
+        }
+      },
+      orderBy: { id: "desc" },
+    });
+
+    const lastNumber = lastDeal
+      ? parseInt(lastDeal.deal_number.split("-")[2], 10)
+      : 0;
+
+    const nextNumber = String(lastNumber + 1).padStart(3, "0");
+
+    const deal_number = `DL-${datePart}-${nextNumber}`;
+
+    logger.info(`Creating deal: ${deal_number}`);
 
     const newDeal = await getdb.deal.create({
       data: {
         deal_number,
-        customer_name: data.customer_name,
+        customer_id: data.customer_id,
         phone_number: data.phone_number,
         deal_type: data.deal_type,
         transaction_mode: data.transaction_mode,
@@ -29,7 +47,7 @@ const createDeal = async (data, userId) => {
           create: (data.received_items || []).map(item => ({
             price: item.price,
             quantity: item.quantity,
-            total: (item.price * item.quantity).toString(),
+            total: item.total,
             currency_id: item.currency_id,
           })),
         },
@@ -37,7 +55,7 @@ const createDeal = async (data, userId) => {
           create: (data.paid_items || []).map(item => ({
             price: item.price,
             quantity: item.quantity,
-            total: (item.price * item.quantity).toString(),
+            total: item.total,
             currency_id: item.currency_id,
           })),
         },
@@ -132,6 +150,7 @@ const getAllDeals = async (
     const deals = await getdb.deal.findMany({
       where,
       include: {
+        customer:{ select:{ id: true, name: true, phone_number: true, email: true} },
         received_items: {
           include: { currency: { select: { id: true, code: true, name: true } } },
         },
@@ -267,6 +286,8 @@ const generateExcel = async (deals) => {
     { header: "Deal Number", key: "deal_number", width: 20 },
     { header: "Deal Type", key: "deal_type", width: 15 },
     { header: "Customer Name", key: "customer_name", width: 25 },
+    { header: "Customer Phone", key: "customer_phone", width: 20 },
+    { header: "Customer Email", key: "customer_email", width: 25 },
     { header: "Buy Amount", key: "buy_amount", width: 15 },
     { header: "Buy Currency", key: "buy_currency", width: 20 },
     { header: "Rate", key: "rate", width: 10 },
@@ -296,7 +317,9 @@ const generateExcel = async (deals) => {
       id: d.id,
       deal_number: d.deal_number,
       deal_type: d.deal_type,
-      customer_name: d.customer_name,
+      customer_name: d.customer?.name || "",
+      customer_phone: d.customer?.phone_number || "",
+      customer_email: d.customer?.email || "",
       buy_amount,
       buy_currency,
       rate: d.rate,
@@ -322,13 +345,13 @@ const generatePDF = async (deals) => {
   if (!fs.existsSync(folder)) fs.mkdirSync(folder);
 
   const filePath = path.join(folder, `deals_${Date.now()}.pdf`);
-  const doc = new PDFDocument();
+  const doc = new PDFDocument({ margin: 40 });
 
   const writeStream = fs.createWriteStream(filePath);
   doc.pipe(writeStream);
 
-  doc.fontSize(18).text("Deals Report", { underline: true });
-  doc.moveDown(1);
+  doc.fontSize(20).text("Deals Report", { underline: true });
+  doc.moveDown(1.5);
 
   deals.forEach((d) => {
     const totalReceived = d.received_items.reduce((sum, i) => sum + Number(i.total), 0);
@@ -337,29 +360,38 @@ const generatePDF = async (deals) => {
     const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
     const buy_currency =
       d.deal_type === "buy"
-        ? d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
-        : d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+        ? d.paid_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
+        : d.received_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
+
     const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
     const sell_currency =
       d.deal_type === "buy"
-        ? d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
-        : d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+        ? d.received_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
+        : d.paid_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
 
-    doc.fontSize(12).text(
-      ` ID: ${d.id}
-        Deal Number: ${d.deal_number}
-        Deal Type: ${d.deal_type}
-        Customer Name: ${d.customer_name}
-        Buy Amount: ${buy_amount}
-        Buy Currency: ${buy_currency}
-        Rate: ${d.rate}
-        Sell Amount: ${sell_amount}
-        Sell Currency: ${sell_currency}
-        Status: ${d.status}
-        Created At: ${d.created_at.toISOString()}
-        Created By: ${d.createdBy?.full_name}
-        -----------------------------------------`
-    );
+    const createdAt =
+      d.created_at instanceof Date
+        ? d.created_at.toISOString()
+        : new Date(d.created_at).toISOString();
+
+    doc.fontSize(12).text(`ID: ${d.id}`);
+    doc.text(`Deal Number: ${d.deal_number}`);
+    doc.text(`Deal Type: ${d.deal_type}`);
+    doc.text(`Customer Name: ${d.customer?.name || ""}`);
+    doc.text(`Customer Phone: ${d.customer?.phone_number || ""}`);
+    doc.text(`Customer Email: ${d.customer?.email || ""}`);
+    doc.text(`Buy Amount: ${buy_amount}`);
+    doc.text(`Buy Currency: ${buy_currency}`);
+    doc.text(`Rate: ${d.rate}`);
+    doc.text(`Sell Amount: ${sell_amount}`);
+    doc.text(`Sell Currency: ${sell_currency}`);
+    doc.text(`Status: ${d.status}`);
+    doc.text(`Created At: ${createdAt}`);
+    doc.text(`Created By: ${d.createdBy?.full_name || ""}`);
+
+    doc.moveDown(1);
+    doc.text("----------------------------------------------");
+    doc.moveDown(1);
   });
 
   doc.end();
@@ -374,6 +406,7 @@ const getDealById = async (id) => {
         return await getdb.deal.findUnique({
             where: { id: Number(id) },
             include: {
+              customer:{ select:{ id: true, name: true, phone_number: true, email: true} },
               received_items: { include: { currency: true } },
               paid_items: { include: { currency: true } },
               createdBy: { select: { id: true, full_name: true, email: true } },
@@ -422,7 +455,6 @@ const updateDeal = async (id, data, userId) => {
     const updatedDeal = await getdb.deal.update({
       where: { id: Number(id) },
       data: {
-        customer_name: data.customer_name,
         deal_type: data.deal_type,
         transaction_mode: data.transaction_mode,
         amount: data.amount,

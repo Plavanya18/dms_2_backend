@@ -177,6 +177,30 @@ const getAllReconciliations = async ({
             take: limit,
         });
 
+        const enhancedData = reconciliations.map((rec) => {
+            const opening_total = rec.openingEntries.reduce(
+                (sum, entry) => sum + Number(entry.amount || 0),
+                0
+            );
+
+            const closing_total = rec.closingEntries.reduce(
+                (sum, entry) => sum + Number(entry.amount || 0),
+                0
+            );
+
+            const total_transactions = rec.deals.length;
+
+            const difference = opening_total - closing_total;
+
+            return {
+                ...rec,
+                opening_total,
+                closing_total,
+                total_transactions,
+                difference,
+            };
+        });
+
         if (format === "excel") {
         const filePath = await generateExcel(reconciliations);
         return { filePath };
@@ -187,7 +211,7 @@ const getAllReconciliations = async ({
         return { filePath };
         }
 
-        return { data: reconciliations, total };
+        return { data: enhancedData, total };
     } catch (error) {
         logger.error("Failed to fetch reconciliations:", error);
         throw error;

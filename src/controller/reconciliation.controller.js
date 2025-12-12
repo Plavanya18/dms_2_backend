@@ -17,7 +17,7 @@ const getAllReconciliations = async (req, res) => {
     const {
       page = 1,
       limit = 10,
-      dateFilter = "today",
+      dateFilter,
       startDate,
       endDate,
       status,
@@ -88,20 +88,37 @@ const getReconciliationById = async (req, res) => {
 };
 
 const updateReconciliationStatus = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { status, notes } = req.body;
-        const userId = req.user;
-        const rec = await reconciliationService.updateReconciliationStatus(
-            id,
-            status,
-            notes,
-            userId
-        );
-        return res.json({ message: "Reconciliation updated successfully", data: rec });
-    } catch (err) {
-        return res.status(500).json({ message: err.message });
+  try {
+    const { id } = req.params;
+    const { openingEntries, closingEntries, notes } = req.body;
+    const userId = req.user; 
+    
+    if (!openingEntries?.length || !closingEntries?.length) {
+      return res.status(400).json({
+        message: "Opening and closing entries are required",
+      });
     }
+
+    const updatedReconciliation = await reconciliationService.updateReconciliationStatus(
+      id,
+      { openingEntries, closingEntries, notes },
+      userId
+    );
+
+    if (!updatedReconciliation) {
+      return res.status(404).json({
+        message: "No non-tallied reconciliation found for today",
+      });
+    }
+
+    return res.json({
+      message: "Reconciliation updated successfully",
+      data: updatedReconciliation,
+    });
+  } catch (err) {
+    console.error("Error updating reconciliation:", err);
+    return res.status(500).json({ message: err.message });
+  }
 };
 
 

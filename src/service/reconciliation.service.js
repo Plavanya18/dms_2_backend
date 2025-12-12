@@ -6,68 +6,95 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 
 const createReconciliation = async (data, userId) => {
-    try {
-        const totalOpening = data.openingEntries.reduce(
-            (sum, entry) => sum + Number(entry.amount),
-            0
-        );
-        const totalClosing = data.closingEntries.reduce(
-            (sum, entry) => sum + Number(entry.amount),
-            0
-        );
+  try {
+    const now = new Date();
 
-        let status;
-        if (totalClosing === totalOpening) status = "Tallied";
-        else if (totalClosing < totalOpening) status = "Short";
-        else status = "Excess";
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-        const newReconciliation = await getdb.reconciliation.create({
-            data: {
-                status,
-                created_by: userId,
-                created_at: new Date(),
-                updated_at: new Date(),
-                openingEntries: {
-                    create: data.openingEntries.map((entry) => ({
-                        denomination: entry.denomination,
-                        quantity: entry.quantity,
-                        amount: entry.amount,
-                        currency_id: entry.currency_id,
-                    })),
-                },
-                closingEntries: {
-                    create: data.closingEntries.map((entry) => ({
-                        denomination: entry.denomination,
-                        quantity: entry.quantity,
-                        amount: entry.amount,
-                        currency_id: entry.currency_id,
-                    })),
-                },
-                notes: data.notes
-                    ? {
-                        create: data.notes.map((note) => ({ note })),
-                    }
-                    : undefined,
-            },
-            include: {
-                openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-                closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-                notes: true,
-                createdBy: { select: { id: true, full_name: true, email: true } },
-            },
-        });
+    const dealsToday = await getdb.deal.findMany({
+      where: {
+        created_at: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+      select: { id: true },
+    });
 
-        return newReconciliation;
-    } catch (error) {
-        logger.error("Failed to create reconciliation:", error);
-        throw error;
-    }
+    logger.info(`Found ${dealsToday.length} deals for reconciliation date.`);
+
+    const totalOpening = data.openingEntries.reduce(
+      (sum, entry) => sum + Number(entry.amount),
+      0
+    );
+    const totalClosing = data.closingEntries.reduce(
+      (sum, entry) => sum + Number(entry.amount),
+      0
+    );
+
+    let status = "Tallied";
+    if (totalClosing < totalOpening) status = "Short";
+    if (totalClosing > totalOpening) status = "Excess";
+
+    const newReconciliation = await getdb.reconciliation.create({
+      data: {
+        status,
+        created_by: userId,
+        created_at: new Date(),
+        updated_at: new Date(),
+        openingEntries: {
+          create: data.openingEntries.map((entry) => ({
+            denomination: entry.denomination,
+            quantity: entry.quantity,
+            amount: entry.amount,
+            currency_id: entry.currency_id,
+          })),
+        },
+
+        closingEntries: {
+          create: data.closingEntries.map((entry) => ({
+            denomination: entry.denomination,
+            quantity: entry.quantity,
+            amount: entry.amount,
+            currency_id: entry.currency_id,
+          })),
+        },
+
+        notes: data.notes?.length
+          ? {
+              create: data.notes.map((note) => ({ note })),
+            }
+          : undefined,
+
+        deals: {
+          create: dealsToday.map((deal) => ({
+            deal_id: deal.id,
+          })),
+        },
+      },
+
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: true,
+      },
+    });
+
+    logger.info("Reconciliation created successfully.");
+    return newReconciliation;
+
+  } catch (error) {
+    logger.error("Failed to create reconciliation:", error);
+    throw error;
+  }
 };
 
 const getAllReconciliations = async ({
     page = 1,
     limit = 10,
-    dateFilter = "today",
+    dateFilter,
     startDate,
     endDate,
     status,
@@ -80,61 +107,52 @@ const getAllReconciliations = async ({
         const now = new Date();
         let start, end;
 
-        switch (dateFilter) {
-            case "today":
-                start = new Date(now.setHours(0, 0, 0, 0));
-                end = new Date(now.setHours(23, 59, 59, 999));
-                break;
+        if (dateFilter) {
+          switch (dateFilter) {
+              case "today":
+                  start = new Date(now.setHours(0, 0, 0, 0));
+                  end = new Date(now.setHours(23, 59, 59, 999));
+                  break;
 
-            case "yesterday":
-                const yesterday = new Date();
-                yesterday.setDate(now.getDate() - 1);
-                start = new Date(yesterday.setHours(0, 0, 0, 0));
-                end = new Date(yesterday.setHours(23, 59, 59, 999));
-                break;
+              case "yesterday":
+                  const yesterday = new Date();
+                  yesterday.setDate(now.getDate() - 1);
+                  start = new Date(yesterday.setHours(0, 0, 0, 0));
+                  end = new Date(yesterday.setHours(23, 59, 59, 999));
+                  break;
 
-            case "last7":
-                start = new Date(now);
-                start.setDate(now.getDate() - 7);
-                start.setHours(0, 0, 0, 0);
-                end = new Date(now.setHours(23, 59, 59, 999));
-                break;
+              case "last7":
+                  start = new Date(now);
+                  start.setDate(now.getDate() - 7);
+                  start.setHours(0, 0, 0, 0);
+                  end = new Date(now.setHours(23, 59, 59, 999));
+                  break;
 
-            case "thisMonth":
-                start = new Date(now.getFullYear(), now.getMonth(), 1);
-                start.setHours(0, 0, 0, 0);
-                end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                end.setHours(23, 59, 59, 999);
-                break;
+              case "thisMonth":
+                  start = new Date(now.getFullYear(), now.getMonth(), 1);
+                  start.setHours(0, 0, 0, 0);
+                  end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                  end.setHours(23, 59, 59, 999);
+                  break;
 
-            case "custom":
-                if (startDate && endDate) {
-                    start = new Date(startDate);
-                    start.setHours(0, 0, 0, 0);
-                    end = new Date(endDate);
-                    end.setHours(23, 59, 59, 999);
-                } else {
-                    throw new Error("For custom dateFilter, startDate and endDate are required");
-                }
-                break;
+              case "custom":
+                  if (startDate && endDate) {
+                      start = new Date(startDate);
+                      start.setHours(0, 0, 0, 0);
+                      end = new Date(endDate);
+                      end.setHours(23, 59, 59, 999);
+                  } else {
+                      throw new Error("For custom dateFilter, startDate and endDate are required");
+                  }
+                  break;
 
-            default:
-                throw new Error("Invalid dateFilter value");
+              default:
+                  throw new Error("Invalid dateFilter value");
+          }
         }
 
         if (status) {
             where.status = status;
-        } else {
-            // Default: show only Short/Excess for past dates, show all for today
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const todayEnd = new Date();
-            todayEnd.setHours(23, 59, 59, 999);
-
-            if (start.getTime() >= todayStart.getTime() && end.getTime() <= todayEnd.getTime()) {
-            } else {
-                where.status = { in: ["Short", "Excess"] };
-            }
         }
 
         where.created_at = { gte: start, lte: end };
@@ -151,6 +169,7 @@ const getAllReconciliations = async ({
                     include: { currency: { select: { id: true, code: true, name: true } } },
                 },
                 notes: true,
+                deals: {include: { deal: { select: {id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
                 createdBy: { select: { id: true, full_name: true, email: true } },
             },
             orderBy: { created_at: "desc" },
@@ -285,6 +304,7 @@ const getReconciliationAlerts = async () => {
       created_at: "desc",
     },
     include: {
+      deals: {include: { deal: { select: {id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
       createdBy: {
         select: { id: true, full_name: true, email: true },
       },
@@ -313,6 +333,7 @@ const getReconciliationById = async (id) => {
                 openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
                 closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
                 notes: true,
+                deals: {include: { deal: { select: {id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
                 createdBy: { select: { id: true, full_name: true, email: true } },
             },
         });
@@ -324,30 +345,71 @@ const getReconciliationById = async (id) => {
     }
 };
 
-const updateReconciliationStatus = async (id, status, notes, userId) => {
-    try {
-        return await getdb.reconciliation.update({
-            where: { id: Number(id) },
-            data: {
-                status,
-                updated_at: new Date(),
-                notes: notes
-                    ? {
-                        create: notes.map((note) => ({ note })),
-                    }
-                    : undefined,
-            },
-            include: {
-                notes: true,
-                createdBy: { select: { id: true, full_name: true, email: true } },
-                openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-                closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-            },
-        });
-    } catch (error) {
-        logger.error("Failed to update reconciliation status:", error);
-        throw error;
+const updateReconciliationStatus = async (id, data, userId) => {
+  try {
+    const existingReconciliation = await getdb.reconciliation.findUnique({
+      where: { id: Number(id) },
+      include: {
+        openingEntries: true,
+        closingEntries: true,
+        notes: true,
+        deals: true,
+      },
+    });
+
+    if (!existingReconciliation) {
+      logger.info(`Reconciliation with id ${id} not found.`);
+      return null;
     }
+
+    await getdb.reconciliationOpening.deleteMany({ where: { reconciliation_id: existingReconciliation.id } });
+    await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: existingReconciliation.id } });
+
+    const totalOpening = data.openingEntries.reduce((sum, e) => sum + Number(e.amount), 0);
+    const totalClosing = data.closingEntries.reduce((sum, e) => sum + Number(e.amount), 0);
+
+    let status = "Tallied";
+    if (totalClosing < totalOpening) status = "Short";
+    if (totalClosing > totalOpening) status = "Excess";
+
+    const updatedReconciliation = await getdb.reconciliation.update({
+      where: { id: existingReconciliation.id },
+      data: {
+        status,
+        updated_at: new Date(),
+        openingEntries: {
+          create: data.openingEntries.map(entry => ({
+            denomination: entry.denomination,
+            quantity: entry.quantity,
+            amount: entry.amount,
+            currency_id: entry.currency_id,
+          })),
+        },
+        closingEntries: {
+          create: data.closingEntries.map(entry => ({
+            denomination: entry.denomination,
+            quantity: entry.quantity,
+            amount: entry.amount,
+            currency_id: entry.currency_id,
+          })),
+        },
+        notes: data.notes?.length ? { create: data.notes.map(note => ({ note })) } : undefined,
+      },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: true,
+      },
+    });
+
+    logger.info("Reconciliation updated successfully.");
+    return updatedReconciliation;
+
+  } catch (error) {
+    logger.error("Failed to update reconciliation:", error);
+    throw error;
+  }
 };
 
 module.exports = {

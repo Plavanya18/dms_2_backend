@@ -14,9 +14,9 @@ const loginController = async (req, res) => {
 
 const verifyOtpController = async (req, res) => {
   try {
-    const { email, otp, ip_id, device_info } = req.body;
+    const { email, otp, ip_id } = req.body;
 
-    const result = await authService.verifyOtp(email, otp, ip_id, device_info);
+    const result = await authService.verifyOtp(email, otp, ip_id);
 
     res.status(200).json({
       message: "OTP verified successfully",

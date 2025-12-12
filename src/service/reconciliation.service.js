@@ -94,7 +94,7 @@ const createReconciliation = async (data, userId) => {
 const getAllReconciliations = async ({
     page = 1,
     limit = 10,
-    dateFilter = "today",
+    dateFilter,
     startDate,
     endDate,
     status,
@@ -107,61 +107,52 @@ const getAllReconciliations = async ({
         const now = new Date();
         let start, end;
 
-        switch (dateFilter) {
-            case "today":
-                start = new Date(now.setHours(0, 0, 0, 0));
-                end = new Date(now.setHours(23, 59, 59, 999));
-                break;
+        if (dateFilter) {
+          switch (dateFilter) {
+              case "today":
+                  start = new Date(now.setHours(0, 0, 0, 0));
+                  end = new Date(now.setHours(23, 59, 59, 999));
+                  break;
 
-            case "yesterday":
-                const yesterday = new Date();
-                yesterday.setDate(now.getDate() - 1);
-                start = new Date(yesterday.setHours(0, 0, 0, 0));
-                end = new Date(yesterday.setHours(23, 59, 59, 999));
-                break;
+              case "yesterday":
+                  const yesterday = new Date();
+                  yesterday.setDate(now.getDate() - 1);
+                  start = new Date(yesterday.setHours(0, 0, 0, 0));
+                  end = new Date(yesterday.setHours(23, 59, 59, 999));
+                  break;
 
-            case "last7":
-                start = new Date(now);
-                start.setDate(now.getDate() - 7);
-                start.setHours(0, 0, 0, 0);
-                end = new Date(now.setHours(23, 59, 59, 999));
-                break;
+              case "last7":
+                  start = new Date(now);
+                  start.setDate(now.getDate() - 7);
+                  start.setHours(0, 0, 0, 0);
+                  end = new Date(now.setHours(23, 59, 59, 999));
+                  break;
 
-            case "thisMonth":
-                start = new Date(now.getFullYear(), now.getMonth(), 1);
-                start.setHours(0, 0, 0, 0);
-                end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                end.setHours(23, 59, 59, 999);
-                break;
+              case "thisMonth":
+                  start = new Date(now.getFullYear(), now.getMonth(), 1);
+                  start.setHours(0, 0, 0, 0);
+                  end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                  end.setHours(23, 59, 59, 999);
+                  break;
 
-            case "custom":
-                if (startDate && endDate) {
-                    start = new Date(startDate);
-                    start.setHours(0, 0, 0, 0);
-                    end = new Date(endDate);
-                    end.setHours(23, 59, 59, 999);
-                } else {
-                    throw new Error("For custom dateFilter, startDate and endDate are required");
-                }
-                break;
+              case "custom":
+                  if (startDate && endDate) {
+                      start = new Date(startDate);
+                      start.setHours(0, 0, 0, 0);
+                      end = new Date(endDate);
+                      end.setHours(23, 59, 59, 999);
+                  } else {
+                      throw new Error("For custom dateFilter, startDate and endDate are required");
+                  }
+                  break;
 
-            default:
-                throw new Error("Invalid dateFilter value");
+              default:
+                  throw new Error("Invalid dateFilter value");
+          }
         }
 
         if (status) {
             where.status = status;
-        } else {
-            // Default: show only Short/Excess for past dates, show all for today
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const todayEnd = new Date();
-            todayEnd.setHours(23, 59, 59, 999);
-
-            if (start.getTime() >= todayStart.getTime() && end.getTime() <= todayEnd.getTime()) {
-            } else {
-                where.status = { in: ["Short", "Excess"] };
-            }
         }
 
         where.created_at = { gte: start, lte: end };

@@ -17,7 +17,7 @@ const getAllReconciliations = async (req, res) => {
     const {
       page = 1,
       limit = 10,
-      dateFilter = "today",
+      dateFilter,
       startDate,
       endDate,
       status,

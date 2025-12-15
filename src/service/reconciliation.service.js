@@ -7,6 +7,10 @@ const PDFDocument = require("pdfkit");
 
 const createReconciliation = async (data, userId) => {
   try {
+    if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
+      throw new Error("Opening entries are required to create a reconciliation.");
+    }
+
     const now = new Date();
 
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -14,63 +18,40 @@ const createReconciliation = async (data, userId) => {
 
     const dealsToday = await getdb.deal.findMany({
       where: {
-        created_at: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
+        created_at: { gte: startOfDay, lte: endOfDay },
       },
       select: { id: true },
     });
 
-    logger.info(`Found ${dealsToday.length} deals for reconciliation date.`);
-
-    const totalOpening = data.openingEntries.reduce(
-      (sum, entry) => sum + Number(entry.amount),
-      0
-    );
-    const totalClosing = data.closingEntries.reduce(
-      (sum, entry) => sum + Number(entry.amount),
-      0
-    );
-
-    let status = "Tallied";
-    if (totalClosing < totalOpening) status = "Short";
-    if (totalClosing > totalOpening) status = "Excess";
-
     const newReconciliation = await getdb.reconciliation.create({
       data: {
-        status,
+        status: data.status,
         created_by: userId,
-        created_at: new Date(),
-        updated_at: new Date(),
+        created_at: now,
+        updated_at: now,
         openingEntries: {
-          create: data.openingEntries.map((entry) => ({
+          create: data.openingEntries.map(entry => ({
             denomination: entry.denomination,
             quantity: entry.quantity,
             amount: entry.amount,
             currency_id: entry.currency_id,
           })),
         },
-
-        closingEntries: {
-          create: data.closingEntries.map((entry) => ({
-            denomination: entry.denomination,
-            quantity: entry.quantity,
-            amount: entry.amount,
-            currency_id: entry.currency_id,
-          })),
-        },
-
-        notes: data.notes?.length
-          ? {
-              create: data.notes.map((note) => ({ note })),
-            }
-          : undefined,
-
+        ...(Array.isArray(data.closingEntries) && data.closingEntries.length > 0 && {
+          closingEntries: {
+            create: data.closingEntries.map(entry => ({
+              denomination: entry.denomination,
+              quantity: entry.quantity,
+              amount: entry.amount,
+              currency_id: entry.currency_id,
+            })),
+          },
+        }),
+        ...(Array.isArray(data.notes) && data.notes.length > 0 && {
+          notes: { create: data.notes.map(note => ({ note })) },
+        }),
         deals: {
-          create: dealsToday.map((deal) => ({
-            deal_id: deal.id,
-          })),
+          create: dealsToday.map(deal => ({ deal_id: deal.id })),
         },
       },
 
@@ -369,13 +350,14 @@ const getReconciliationById = async (id) => {
     }
 };
 
-const updateReconciliationStatus = async (id, data, userId) => {
+const updateReconciliation = async (id, data, userId) => {
   try {
     const reconciliation = await getdb.reconciliation.findUnique({
       where: { id: Number(id) },
       include: {
         openingEntries: true,
         closingEntries: true,
+        deals: true,
       },
     });
 
@@ -384,75 +366,48 @@ const updateReconciliationStatus = async (id, data, userId) => {
     const hasOpening = Array.isArray(data.openingEntries);
     const hasClosing = Array.isArray(data.closingEntries);
 
-    const openingEntries = hasOpening
-      ? data.openingEntries
-      : reconciliation.openingEntries;
+    if (hasOpening) await getdb.reconciliationOpening.deleteMany({ where: { reconciliation_id: reconciliation.id } });
+    if (hasClosing) await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: reconciliation.id } });
 
-    const closingEntries = hasClosing
-      ? data.closingEntries
-      : reconciliation.closingEntries;
+    const lastDealIds = reconciliation.deals.map(d => d.deal_id);
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-    const totalOpening = openingEntries.reduce(
-      (sum, e) => sum + Number(e.amount), 0
-    );
-
-    const totalClosing = closingEntries.reduce(
-      (sum, e) => sum + Number(e.amount), 0
-    );
-
-    let status = reconciliation.status;
-    if (hasOpening && hasClosing) {
-      status = "Tallied";
-      if (totalClosing < totalOpening) status = "Short";
-      if (totalClosing > totalOpening) status = "Excess";
-    }
-
-    if (hasOpening) {
-      await getdb.reconciliationOpening.deleteMany({
-        where: { reconciliation_id: reconciliation.id },
-      });
-    }
-
-    if (hasClosing) {
-      await getdb.reconciliationClosing.deleteMany({
-        where: { reconciliation_id: reconciliation.id },
-      });
-    }
+    const newDeals = await getdb.deal.findMany({
+      where: {
+        created_at: { gte: startOfDay, lte: endOfDay },
+        id: { notIn: lastDealIds },
+      },
+      select: { id: true },
+    });
 
     const updatedReconciliation = await getdb.reconciliation.update({
       where: { id: reconciliation.id },
       data: {
-        status,
-        updated_at: new Date(),
-
+        status: data.status,
+        updated_at: now,
         ...(hasOpening && {
-          openingEntries: {
-            create: data.openingEntries.map(e => ({
-              denomination: e.denomination,
-              quantity: e.quantity,
-              amount: e.amount,
-              currency_id: e.currency_id,
-            })),
-          },
+          openingEntries: { create: data.openingEntries.map(e => ({
+            denomination: e.denomination,
+            quantity: e.quantity,
+            amount: e.amount,
+            currency_id: e.currency_id,
+          })) },
         }),
-
         ...(hasClosing && {
-          closingEntries: {
-            create: data.closingEntries.map(e => ({
-              denomination: e.denomination,
-              quantity: e.quantity,
-              amount: e.amount,
-              currency_id: e.currency_id,
-            })),
-          },
+          closingEntries: { create: data.closingEntries.map(e => ({
+            denomination: e.denomination,
+            quantity: e.quantity,
+            amount: e.amount,
+            currency_id: e.currency_id,
+          })) },
         }),
-
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
-          notes: {
-            create: data.notes.map(n => ({
-              note: n,
-            })),
-          },
+          notes: { create: data.notes.map(n => ({ note: n })) },
+        }),
+        ...(newDeals.length > 0 && {
+          deals: { create: newDeals.map(d => ({ deal_id: d.id })) },
         }),
       },
       include: {
@@ -464,7 +419,6 @@ const updateReconciliationStatus = async (id, data, userId) => {
     });
 
     return updatedReconciliation;
-
   } catch (error) {
     console.error("Failed to update reconciliation:", error);
     throw error;
@@ -476,5 +430,5 @@ module.exports = {
     getAllReconciliations,
     getReconciliationAlerts,
     getReconciliationById,
-    updateReconciliationStatus,
+    updateReconciliation,
 };

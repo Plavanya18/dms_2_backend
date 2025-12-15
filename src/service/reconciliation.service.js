@@ -371,53 +371,89 @@ const getReconciliationById = async (id) => {
 
 const updateReconciliationStatus = async (id, data, userId) => {
   try {
-    const existingReconciliation = await getdb.reconciliation.findUnique({
+    const reconciliation = await getdb.reconciliation.findUnique({
       where: { id: Number(id) },
       include: {
         openingEntries: true,
         closingEntries: true,
-        notes: true,
-        deals: true,
       },
     });
 
-    if (!existingReconciliation) {
-      logger.info(`Reconciliation with id ${id} not found.`);
-      return null;
+    if (!reconciliation) return null;
+
+    const hasOpening = Array.isArray(data.openingEntries);
+    const hasClosing = Array.isArray(data.closingEntries);
+
+    const openingEntries = hasOpening
+      ? data.openingEntries
+      : reconciliation.openingEntries;
+
+    const closingEntries = hasClosing
+      ? data.closingEntries
+      : reconciliation.closingEntries;
+
+    const totalOpening = openingEntries.reduce(
+      (sum, e) => sum + Number(e.amount), 0
+    );
+
+    const totalClosing = closingEntries.reduce(
+      (sum, e) => sum + Number(e.amount), 0
+    );
+
+    let status = reconciliation.status;
+    if (hasOpening && hasClosing) {
+      status = "Tallied";
+      if (totalClosing < totalOpening) status = "Short";
+      if (totalClosing > totalOpening) status = "Excess";
     }
 
-    await getdb.reconciliationOpening.deleteMany({ where: { reconciliation_id: existingReconciliation.id } });
-    await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: existingReconciliation.id } });
+    if (hasOpening) {
+      await getdb.reconciliationOpening.deleteMany({
+        where: { reconciliation_id: reconciliation.id },
+      });
+    }
 
-    const totalOpening = data.openingEntries.reduce((sum, e) => sum + Number(e.amount), 0);
-    const totalClosing = data.closingEntries.reduce((sum, e) => sum + Number(e.amount), 0);
-
-    let status = "Tallied";
-    if (totalClosing < totalOpening) status = "Short";
-    if (totalClosing > totalOpening) status = "Excess";
+    if (hasClosing) {
+      await getdb.reconciliationClosing.deleteMany({
+        where: { reconciliation_id: reconciliation.id },
+      });
+    }
 
     const updatedReconciliation = await getdb.reconciliation.update({
-      where: { id: existingReconciliation.id },
+      where: { id: reconciliation.id },
       data: {
         status,
         updated_at: new Date(),
-        openingEntries: {
-          create: data.openingEntries.map(entry => ({
-            denomination: entry.denomination,
-            quantity: entry.quantity,
-            amount: entry.amount,
-            currency_id: entry.currency_id,
-          })),
-        },
-        closingEntries: {
-          create: data.closingEntries.map(entry => ({
-            denomination: entry.denomination,
-            quantity: entry.quantity,
-            amount: entry.amount,
-            currency_id: entry.currency_id,
-          })),
-        },
-        notes: data.notes?.length ? { create: data.notes.map(note => ({ note })) } : undefined,
+
+        ...(hasOpening && {
+          openingEntries: {
+            create: data.openingEntries.map(e => ({
+              denomination: e.denomination,
+              quantity: e.quantity,
+              amount: e.amount,
+              currency_id: e.currency_id,
+            })),
+          },
+        }),
+
+        ...(hasClosing && {
+          closingEntries: {
+            create: data.closingEntries.map(e => ({
+              denomination: e.denomination,
+              quantity: e.quantity,
+              amount: e.amount,
+              currency_id: e.currency_id,
+            })),
+          },
+        }),
+
+        ...(Array.isArray(data.notes) && data.notes.length > 0 && {
+          notes: {
+            create: data.notes.map(n => ({
+              note: n,
+            })),
+          },
+        }),
       },
       include: {
         openingEntries: { include: { currency: true } },
@@ -427,11 +463,10 @@ const updateReconciliationStatus = async (id, data, userId) => {
       },
     });
 
-    logger.info("Reconciliation updated successfully.");
     return updatedReconciliation;
 
   } catch (error) {
-    logger.error("Failed to update reconciliation:", error);
+    console.error("Failed to update reconciliation:", error);
     throw error;
   }
 };

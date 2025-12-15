@@ -91,23 +91,35 @@ const updateReconciliationStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { openingEntries, closingEntries, notes } = req.body;
-    const userId = req.user; 
-    
-    if (!openingEntries?.length || !closingEntries?.length) {
+    const userId = req.user;
+
+    const hasOpening = Array.isArray(openingEntries);
+    const hasClosing = Array.isArray(closingEntries);
+    const hasNotes = Array.isArray(notes);
+
+    if (!hasOpening && !hasClosing && !hasNotes) {
       return res.status(400).json({
-        message: "Opening and closing entries are required",
+        message: "Nothing to update",
       });
     }
 
-    const updatedReconciliation = await reconciliationService.updateReconciliationStatus(
-      id,
-      { openingEntries, closingEntries, notes },
-      userId
-    );
+    if ((hasOpening && openingEntries.length === 0) ||
+        (hasClosing && closingEntries.length === 0)) {
+      return res.status(400).json({
+        message: "Opening or closing entries cannot be empty",
+      });
+    }
+
+    const updatedReconciliation =
+      await reconciliationService.updateReconciliationStatus(
+        id,
+        { openingEntries, closingEntries, notes },
+        userId
+      );
 
     if (!updatedReconciliation) {
       return res.status(404).json({
-        message: "No non-tallied reconciliation found for today",
+        message: "No non-tallied reconciliation found",
       });
     }
 
@@ -117,7 +129,9 @@ const updateReconciliationStatus = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updating reconciliation:", err);
-    return res.status(500).json({ message: err.message });
+    return res.status(500).json({
+      message: err.message || "Internal server error",
+    });
   }
 };
 

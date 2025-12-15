@@ -38,6 +38,7 @@ const createDeal = async (data, userId) => {
         transaction_mode: data.transaction_mode,
         amount: data.amount,
         rate: data.rate,
+        amount_to_be_paid: data.amount_to_be_paid,
         remarks: data.remarks || null,
         status: data.status,
         created_by: userId,
@@ -214,27 +215,71 @@ const getAllDeals = async (
       include: { received_items: true, paid_items: true },
     });
 
-    const calculateTotals = (data) => {
-      let buyAmount = 0,
-        sellAmount = 0;
-
-      data.forEach((d) => {
-        sellAmount += (d.paid_items || []).reduce(
-          (sum, item) => sum + Number(item.total || 0),
-          0
-        );
-
-        buyAmount += (d.received_items || []).reduce(
-          (sum, item) => sum + Number(item.total || 0),
-          0
-        );
+    // get latest currency rate to INR
+    const getLatestRateToINR = async (currencyCode) => {
+      const deal = await getdb.deal.findFirst({
+        where: {
+          OR: [
+            { received_items: { some: { currency: { code: currencyCode } } } },
+            { paid_items: { some: { currency: { code: currencyCode } } } },
+          ],
+        },
+        orderBy: { created_at: "desc" },
+        select: { rate: true },
       });
-
-      return { buyAmount, sellAmount, profit: buyAmount - sellAmount  };
+      return deal?.rate ? Number(deal.rate) : 1;
     };
 
-    const today = calculateTotals(todayDeals);
-    const yesterday = calculateTotals(yesterdayDeals);
+    // get latest USD rate
+    const getLatestUsdRate = async () => {
+      const deal = await getdb.deal.findFirst({
+        where: {
+          OR: [
+            { received_items: { some: { currency: { code: "USD" } } } },
+            { paid_items: { some: { currency: { code: "USD" } } } },
+          ],
+        },
+        orderBy: { created_at: "desc" },
+        select: { rate: true },
+      });
+      return deal?.rate ? Number(deal.rate) : 1;
+    };
+
+    // convert ANY currency → INR → USD
+    const convertToUSD = async (amount, currencyCode, usdRate) => {
+      if (!amount) return 0;
+
+      const rateToINR = await getLatestRateToINR(currencyCode);
+      const amountInINR = amount * rateToINR;
+
+      return amountInINR / usdRate;
+    };
+
+    //CALCULATE TOTALS FOR TODAY/YESTERDAY (USD normalized)
+    const calculateTotalsUSD = async (dealsArray, usdRate) => {
+      let buyUSD = 0;
+      let sellUSD = 0;
+    
+      for (const deal of dealsArray) {
+        for (const item of deal.paid_items || []) {
+          const code = item.currency?.code;
+          sellUSD += await convertToUSD(Number(item.total || 0), code, usdRate);
+        }
+        for (const item of deal.received_items || []) {
+          const code = item.currency?.code;
+          buyUSD += await convertToUSD(Number(item.total || 0), code, usdRate);
+        }
+      }
+      return {
+        buyAmount: Number(buyUSD.toFixed(2)),
+        sellAmount: Number(sellUSD.toFixed(2)),
+        profit: Number((buyUSD - sellUSD).toFixed(2)),
+      };
+    };
+
+    const usdRate = await getLatestUsdRate();
+    const today = await calculateTotalsUSD(todayDeals, usdRate);
+    const yesterday = await calculateTotalsUSD(yesterdayDeals, usdRate);
 
     const percentage = (todayVal, yestVal) => {
       if (yestVal === 0) return todayVal > 0 ? 100 : 0;
@@ -246,7 +291,7 @@ const getAllDeals = async (
         dealCount: todayDeals.length,
         buyAmount: today.buyAmount,
         sellAmount: today.sellAmount,
-        profit: today.profit,
+        profit: today.profit, 
       },
       yesterdayPercentage: {
         dealCount: percentage(todayDeals.length, yesterdayDeals.length),

@@ -2,14 +2,24 @@ const logger = require("../config/logger");
 const reconciliationService = require("../service/reconciliation.service");
 
 const createReconciliation = async (req, res) => {
-    try {
-        const userId = req.user;
-        const data = req.body;
-        const rec = await reconciliationService.createReconciliation(data, userId);
-        return res.json({ message: "Reconciliation created successfully", data: rec });
-    } catch (err) {
-        return res.status(500).json({ message: err.message });
+  try {
+    const userId = req.user;
+    const data = req.body;
+
+    if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
+      return res.status(400).json({ message: "Opening entries are required." });
     }
+
+    const rec = await reconciliationService.createReconciliation(data, userId);
+
+    return res.json({
+      message: "Reconciliation created successfully",
+      data: rec,
+    });
+  } catch (err) {
+    console.error("Error creating reconciliation:", err);
+    return res.status(500).json({ message: err.message || "Internal server error" });
+  }
 };
 
 const getAllReconciliations = async (req, res) => {
@@ -87,7 +97,7 @@ const getReconciliationById = async (req, res) => {
     }
 };
 
-const updateReconciliationStatus = async (req, res) => {
+const updateReconciliation = async (req, res) => {
   try {
     const { id } = req.params;
     const { openingEntries, closingEntries, notes } = req.body;
@@ -111,7 +121,7 @@ const updateReconciliationStatus = async (req, res) => {
     }
 
     const updatedReconciliation =
-      await reconciliationService.updateReconciliationStatus(
+      await reconciliationService.updateReconciliation(
         id,
         { openingEntries, closingEntries, notes },
         userId
@@ -141,5 +151,5 @@ module.exports = {
     getAllReconciliations,
     fetchReconciliationAlerts,
     getReconciliationById,
-    updateReconciliationStatus,
+    updateReconciliation,
 };

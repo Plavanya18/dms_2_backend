@@ -329,13 +329,14 @@ const getReconciliationAlerts = async () => {
   });
 
   const reconciliationFormatted = result.map((item) => {
-    const { updated_at, ...rest } = item;
+    const { updated_at, id, ...rest } = item;
 
     return {
+      id,
       ...rest,
       alertType: "RECONCILIATION",
       title: "Reconciliation Required",
-      message: "Some deals need reconciliation review.",
+      message: `Reconciliation ID ${id} need reconciliation review.`,
       created_at: timeAgo(item.created_at),
     };
   });
@@ -363,7 +364,7 @@ const getReconciliationAlerts = async () => {
     created_at: timeAgo(deal.created_at),
     alertType: "PENDING_DEAL",
     title: "Pending Deal",
-    message: `Deal ${deal.deal_number} is still pending.`,
+    message: `Deal ID ${deal.id} is still pending.`,
   }));
 
   return [...reconciliationFormatted, ...pendingFormatted];

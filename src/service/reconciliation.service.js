@@ -298,6 +298,24 @@ Notes: ${notesStr}
   });
 };
 
+const timeAgo = (date) => {
+  const seconds = Math.floor((Date.now() - new Date(date)) / 1000);
+
+  if (seconds < 60) return "Just now";
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes > 1 ? "s" : ""} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+
+  return new Date(date).toLocaleDateString("en-GB");
+};
+
 const getReconciliationAlerts = async () => {
   const result = await getdb.reconciliation.findMany({
     where: {
@@ -308,26 +326,47 @@ const getReconciliationAlerts = async () => {
     orderBy: {
       created_at: "desc",
     },
-    include: {
-      deals: {include: { deal: { select: {id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
-      createdBy: {
-        select: { id: true, full_name: true, email: true },
-      },
-    },
   });
 
-  const formatted = result.map((item) => {
-    const date = new Date(item.created_at);
-    const formattedDate = date.toLocaleDateString("en-GB");
+  const reconciliationFormatted = result.map((item) => {
     const { updated_at, ...rest } = item;
-    
+
     return {
       ...rest,
-      created_at: formattedDate,
+      alertType: "RECONCILIATION",
+      title: "Reconciliation Required",
+      message: "Some deals need reconciliation review.",
+      created_at: timeAgo(item.created_at),
     };
   });
 
-  return formatted;
+  const pendingDeals = await getdb.deal.findMany({
+    where: {
+      status: "Pending",
+      deleted_at: null,
+    },
+    orderBy: {
+      created_at: "desc",
+    },
+    select: {
+      id: true,
+      deal_number: true,
+      status: true,
+      created_at: true,
+    },
+  });
+
+  const pendingFormatted = pendingDeals.map((deal) => ({
+    id: deal.id,
+    deal_number: deal.deal_number,
+    status: deal.status,
+    created_at: timeAgo(deal.created_at),
+    alertType: "PENDING_DEAL",
+    title: "Pending Deal",
+    message: `Deal ${deal.deal_number} is still pending.`,
+  }));
+
+  return [...reconciliationFormatted, ...pendingFormatted];
 };
 
 const getReconciliationById = async (id) => {

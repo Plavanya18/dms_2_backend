@@ -6,10 +6,12 @@ const {
   getCurrencyByIdController,
   updateCurrencyController,
   deleteCurrencyController,
+  getAllCurrencyUSD,
 } = require("../controller/currency.controller");
 
 router.post("/", createCurrencyController);
 router.get("/", getAllCurrenciesController);
+router.get("/all", getAllCurrencyUSD);
 router.get("/:id", getCurrencyByIdController);
 router.put("/:id", updateCurrencyController);
 router.delete("/:id", deleteCurrencyController);

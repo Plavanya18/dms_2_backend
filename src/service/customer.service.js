@@ -118,17 +118,62 @@ const getCustomerById = async (id) => {
   try {
     const customer = await getdb.customer.findUnique({
       where: { id: Number(id) },
-      include: { createdBy: true, deals: true },
+      include: {
+        createdBy: true,
+        deals: {
+          include: {
+            received_items: { include: { currency: true } },
+            paid_items: { include: { currency: true } },
+          },
+        },
+      },
     });
 
-    if (!customer) {
-      logger.warn(`Customer not found with ID: ${id}`);
-      return null;
-    }
+    if (!customer) return null;
 
-    return customer;
+    // Transform deals to include buy/sell totals and currencies
+    const transformedDeals = (customer.deals || []).map((deal) => {
+      const isBuy = deal.deal_type === "buy";
+
+      // Buy amount & currency
+      const buyAmount = (deal.received_items || []).reduce(
+        (sum, item) => sum + Number(item.total || 0),
+        0
+      );
+      const buyCurrency =
+        deal.received_items?.length > 0 ? deal.received_items[0].currency.code : null;
+
+      // Sell amount & currency
+      const sellAmount = (deal.paid_items || []).reduce(
+        (sum, item) => sum + Number(item.total || 0),
+        0
+      );
+      const sellCurrency =
+        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
+
+      // Format date yyyy/mm/dd
+      const date = new Date(deal.created_at);
+      const formattedDate = `${date.getFullYear()}/${(date.getMonth() + 1)
+        .toString()
+        .padStart(2, "0")}/${date.getDate().toString().padStart(2, "0")}`;
+
+      return {
+        ...deal,
+        created_at: formattedDate,
+        deal_type: isBuy ? "Buy" : "Sell",
+        buyAmount,
+        sellAmount,
+        buyCurrency,
+        sellCurrency,
+      };
+    });
+
+    return {
+      ...customer,
+      deals: transformedDeals,
+    };
   } catch (error) {
-    logger.error(`Failed to fetch customer with ID ${id}:`, error);
+    logger.error(`Failed to fetch customer with deals:`, error);
     throw error;
   }
 };

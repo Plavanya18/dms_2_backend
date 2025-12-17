@@ -1,5 +1,7 @@
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
+const { convertDealToUSD, buildCurrencyMaps } = require("../utils/currencyConverter");
+const { getLatestUsdRateToINR } = require("./currency.service");
 
 const createCustomer = async (data, userId) => {
   try {
@@ -47,11 +49,55 @@ const getAllCustomers = async (
       skip,
       take: limit,
       orderBy: { [orderByField]: orderDirection },
-      include: { createdBy: true, deals: true },
+      include: {
+        deals: {
+          include: {
+            received_items: {
+              include: { currency: true },
+            },
+            paid_items: {
+              include: { currency: true },
+            },
+          },
+        },
+      },
     });
 
+    const { idToCode, codeToId } = await buildCurrencyMaps();
+    const usdInrRate = await getLatestUsdRateToINR(codeToId);
+
+    const result = [];
+
+    for (const customer of customers) {
+      let creditUSD = 0;
+      let debitUSD = 0;
+
+      for (const deal of customer.deals) {
+        const usdAmount = await convertDealToUSD(
+          deal,
+          idToCode,
+          usdInrRate
+        );
+
+        if (deal.deal_type === "sell") {
+          creditUSD += usdAmount;
+        } else {
+          debitUSD += usdAmount;
+        }
+      }
+
+      const net = creditUSD - debitUSD;
+
+      result.push({
+        ...customer,
+        balance: `${Math.abs(net).toFixed(2)}${net >= 0 ? "CR" : "DB"}`,
+        creditUSD: creditUSD.toFixed(2),
+        debitUSD: debitUSD.toFixed(2),
+      });
+    }
+
     return {
-      data: customers,
+      data: result,
       pagination: {
         total,
         page,
@@ -64,7 +110,6 @@ const getAllCustomers = async (
       },
     };
   } catch (error) {
-    logger.error("Failed to fetch customers:", error);
     throw error;
   }
 };

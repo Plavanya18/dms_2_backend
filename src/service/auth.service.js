@@ -145,15 +145,15 @@ const verifyOtp = async (email, otp, ip_id = null) => {
         },
       });
 
-      const deletedDeals = await getdb.deal.updateMany({
-        where: {
-          created_by: user.id,
-          deleted_at: null,
-        },
-        data: {
-          deleted_at: timestamp,
-        },
-      });
+      // const deletedDeals = await getdb.deal.updateMany({
+      //   where: {
+      //     created_by: user.id,
+      //     deleted_at: null,
+      //   },
+      //   data: {
+      //     deleted_at: timestamp,
+      //   },
+      // });
 
       await getdb.user.update({
         where: { id: user.id },

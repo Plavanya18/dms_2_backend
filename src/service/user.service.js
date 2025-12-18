@@ -252,23 +252,23 @@ const logoutUser = async (token) => {
     },
   });
 
-  const deletedDeals = await getdb.deal.updateMany({
-    where: {
-      created_by: session.user_id,
-      deleted_at: null,
-    },
-    data: {
-      deleted_at: new Date(),
-    },
-  });
+  // const deletedDeals = await getdb.deal.updateMany({
+  //   where: {
+  //     created_by: session.user_id,
+  //     deleted_at: null,
+  //   },
+  //   data: {
+  //     deleted_at: new Date(),
+  //   },
+  // });
 
-  logger.info(
-    `User logged out successfully: user_id=${session.user_id}, deals_deleted=${deletedDeals.count}`
-  );
+  // logger.info(
+  //   `User logged out successfully: user_id=${session.user_id}, deals_deleted=${deletedDeals.count}`
+  // );
 
   return {
     message: "Logout successful",
-    deals_deleted: deletedDeals.count,
+    // deals_deleted: deletedDeals.count,
   };
 };
 

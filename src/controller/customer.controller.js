@@ -8,7 +8,7 @@ const createCustomer = async (req, res) => {
     return res.status(201).json({ message: "Customer created successfully", data: customer });
   } catch (error) {
     logger.error("Error in createCustomer controller:", error);
-    return res.status(500).json({ message: "Failed to create customer" });
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -27,7 +27,7 @@ const getAllCustomers = async (req, res) => {
     return res.status(200).json({ message: "Customers fetched successfully", ...result });
   } catch (error) {
     logger.error("Error in getAllCustomers controller:", error);
-    return res.status(500).json({ message: "Failed to fetch customers" });
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -43,7 +43,7 @@ const getCustomerById = async (req, res) => {
     return res.status(200).json({message: "Customer fetched successfully", data: customer });
   } catch (error) {
     logger.error(`Error in getCustomerById controller for ID ${req.params.id}:`, error);
-    return res.status(500).json({ message: "Failed to fetch customer" });
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -54,7 +54,7 @@ const updateCustomer = async (req, res) => {
     return res.status(200).json({message: "Customer updated successfully", data: updated });
   } catch (error) {
     logger.error(`Error in updateCustomer controller for ID ${req.params.id}:`, error);
-    return res.status(500).json({ message: "Failed to update customer" });
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -65,7 +65,7 @@ const deleteCustomer = async (req, res) => {
     return res.status(200).json({message: "Customer deleted successfully"});
   } catch (error) {
     logger.error(`Error in deleteCustomer controller for ID ${req.params.id}:`, error);
-    return res.status(500).json({ message: "Failed to delete customer" });
+    return res.status(500).json({ error: error.message });
   }
 };
 

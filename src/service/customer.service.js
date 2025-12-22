@@ -5,6 +5,23 @@ const { getLatestUsdRateToINR } = require("./currency.service");
 
 const createCustomer = async (data, userId) => {
   try {
+    const existingCustomer = await getdb.customer.findFirst({
+      where: {
+        OR: [
+          { email: data.email },
+          { phone_number: data.phone_number },
+        ],
+      },
+    });
+
+    if (existingCustomer) {
+      throw new Error(
+        existingCustomer.email === data.email
+          ? "Customer with this email already exists"
+          : "Customer with this phone number already exists"
+      );
+    }
+
     const newCustomer = await getdb.customer.create({
       data: {
         ...data,
@@ -52,10 +69,10 @@ const getAllCustomers = async (
       include: {
         deals: {
           include: {
-            received_items: {
+            receivedItems: {
               include: { currency: true },
             },
-            paid_items: {
+            paidItems: {
               include: { currency: true },
             },
           },
@@ -63,41 +80,41 @@ const getAllCustomers = async (
       },
     });
 
-    const { idToCode, codeToId } = await buildCurrencyMaps();
-    const usdInrRate = await getLatestUsdRateToINR(codeToId);
+    // const { idToCode, codeToId } = await buildCurrencyMaps();
+    // const usdInrRate = await getLatestUsdRateToINR(codeToId);
 
-    const result = [];
+    // const result = [];
 
-    for (const customer of customers) {
-      let creditUSD = 0;
-      let debitUSD = 0;
+    // for (const customer of customers) {
+    //   let creditUSD = 0;
+    //   let debitUSD = 0;
 
-      for (const deal of customer.deals) {
-        const usdAmount = await convertDealToUSD(
-          deal,
-          idToCode,
-          usdInrRate
-        );
+    //   for (const deal of customer.deals) {
+    //     const usdAmount = await convertDealToUSD(
+    //       deal,
+    //       idToCode,
+    //       usdInrRate
+    //     );
 
-        if (deal.deal_type === "sell") {
-          creditUSD += usdAmount;
-        } else {
-          debitUSD += usdAmount;
-        }
-      }
+    //     if (deal.deal_type === "sell") {
+    //       creditUSD += usdAmount;
+    //     } else {
+    //       debitUSD += usdAmount;
+    //     }
+    //   }
 
-      const net = creditUSD - debitUSD;
+    //   const net = creditUSD - debitUSD;
 
-      result.push({
-        ...customer,
-        balance: `${Math.abs(net).toFixed(2)}${net >= 0 ? "CR" : "DB"}`,
-        creditUSD: creditUSD.toFixed(2),
-        debitUSD: debitUSD.toFixed(2),
-      });
-    }
+    //   result.push({
+    //     ...customer,
+    //     balance: `${Math.abs(net).toFixed(2)}${net >= 0 ? "CR" : "DB"}`,
+    //     creditUSD: creditUSD.toFixed(2),
+    //     debitUSD: debitUSD.toFixed(2),
+    //   });
+    // }
 
     return {
-      data: result,
+      data: customers,
       pagination: {
         total,
         page,
@@ -122,8 +139,8 @@ const getCustomerById = async (id) => {
         createdBy: true,
         deals: {
           include: {
-            received_items: { include: { currency: true } },
-            paid_items: { include: { currency: true } },
+            receivedItems: { include: { currency: true } },
+            paidItems: { include: { currency: true } },
           },
         },
       },
@@ -136,20 +153,20 @@ const getCustomerById = async (id) => {
       const isBuy = deal.deal_type === "buy";
 
       // Buy amount & currency
-      const buyAmount = (deal.received_items || []).reduce(
+      const buyAmount = (deal.receivedItems || []).reduce(
         (sum, item) => sum + Number(item.total || 0),
         0
       );
       const buyCurrency =
-        deal.received_items?.length > 0 ? deal.received_items[0].currency.code : null;
+        deal.receivedItems?.length > 0 ? deal.receivedItems[0].currency.code : null;
 
       // Sell amount & currency
-      const sellAmount = (deal.paid_items || []).reduce(
+      const sellAmount = (deal.paidItems || []).reduce(
         (sum, item) => sum + Number(item.total || 0),
         0
       );
       const sellCurrency =
-        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
+        deal.paidItems?.length > 0 ? deal.paidItems[0].currency.code : null;
 
       // Format date yyyy/mm/dd
       const date = new Date(deal.created_at);

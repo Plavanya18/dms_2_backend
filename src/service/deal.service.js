@@ -584,41 +584,45 @@ const updateDeal = async (id, data, userId) => {
       throw new Error("Deal not found");
     }
 
+    const updateData = {
+      deal_type: data.deal_type,
+      transaction_mode: data.transaction_mode,
+      amount: data.amount,
+      exchange_rate: data.exchange_rate,
+      remarks: data.remarks || null,
+      status: data.status,
+      action_by: userId,
+      action_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    if (Array.isArray(data.receivedItems)) {
+      updateData.receivedItems = {
+        deleteMany: {},
+        create: data.receivedItems.map(item => ({
+          price: item.price,
+          quantity: item.quantity,
+          total: item.total,
+          currency_id: item.currency_id,
+        })),
+      };
+    }
+
+    if (Array.isArray(data.paidItems)) {
+      updateData.paidItems = {
+        deleteMany: {},
+        create: data.paidItems.map(item => ({
+          price: item.price,
+          quantity: item.quantity,
+          total: item.total,
+          currency_id: item.currency_id,
+        })),
+      };
+    }
+
     const updatedDeal = await getdb.deal.update({
       where: { id: Number(id) },
-      data: {
-        deal_type: data.deal_type,
-        transaction_mode: data.transaction_mode,
-        amount: data.amount,
-        exchange_rate: data.exchange_rate,
-        remarks: data.remarks || null,
-        status: data.status,
-        action_by: userId,
-        action_at: new Date(),
-        updated_at: new Date(),
-
-        // Delete existing receivedItems and create new ones
-        receivedItems: {
-          deleteMany: {}, // deletes all existing for this deal
-          create: data.receivedItems.map(item => ({
-            price: item.price,
-            quantity: item.quantity,
-            total: (item.price * item.quantity).toString(),
-            currency_id: item.currency_id,
-          })),
-        },
-
-        // Delete existing paidItems and create new ones
-        paidItems: {
-          deleteMany: {},
-          create: data.paidItems.map(item => ({
-            price: item.price,
-            quantity: item.quantity,
-            total: (item.price * item.quantity).toString(),
-            currency_id: item.currency_id,
-          })),
-        },
-      },
+      data: updateData,
       include: {
         receivedItems: true,
         paidItems: true,

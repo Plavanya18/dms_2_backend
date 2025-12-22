@@ -25,6 +25,7 @@ const createCustomer = async (data, userId) => {
     const newCustomer = await getdb.customer.create({
       data: {
         ...data,
+        is_active: true,
         created_by: userId,
         created_at: new Date(),
         updated_at: new Date(),

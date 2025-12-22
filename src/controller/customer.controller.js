@@ -14,15 +14,14 @@ const createCustomer = async (req, res) => {
 
 const getAllCustomers = async (req, res) => {
   try {
-    const { page, limit, search, orderByField, orderDirection } = req.query;
+    const { page, limit, search, searchType } = req.query;
 
     const result = await customerService.getAllCustomers(
       Number(page) || 1,
       Number(limit) || 10,
       search || "",
-      orderByField || "created_at",
-      orderDirection || "desc"
-    );
+      searchType
+      );
 
     return res.status(200).json({ message: "Customers fetched successfully", ...result });
   } catch (error) {

@@ -43,21 +43,29 @@ const getAllCustomers = async (
   page = 1,
   limit = 10,
   search = "",
-  orderByField = "created_at",
-  orderDirection = "desc"
+  searchType = "all",
 ) => {
   try {
     const skip = (page - 1) * limit;
 
-    const where = search
-      ? {
+    let where = {};
+
+    if (search) {
+      if (searchType === "name") {
+        where = {
+          name: { contains: search },
+          is_active: true,
+        };
+      } else {
+        where = {
           OR: [
             { name: { contains: search } },
             { phone_number: { contains: search } },
             { email: { contains: search } },
           ],
-        }
-      : {};
+        };
+      }
+    }
 
     const total = await getdb.customer.count({ where });
 
@@ -65,16 +73,11 @@ const getAllCustomers = async (
       where,
       skip,
       take: limit,
-      orderBy: { [orderByField]: orderDirection },
       include: {
         deals: {
           include: {
-            receivedItems: {
-              include: { currency: true },
-            },
-            paidItems: {
-              include: { currency: true },
-            },
+            receivedItems: { include: { currency: true } },
+            paidItems: { include: { currency: true } },
           },
         },
       },
@@ -120,10 +123,6 @@ const getAllCustomers = async (
         page,
         limit,
         totalPages: Math.ceil(total / limit),
-      },
-      sort: {
-        field: orderByField,
-        direction: orderDirection,
       },
     };
   } catch (error) {

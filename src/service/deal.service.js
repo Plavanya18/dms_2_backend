@@ -10,6 +10,18 @@ const createDeal = async (data, userId) => {
     const today = new Date();
     const datePart = `${String(today.getDate()).padStart(2, "0")}${String(today.getMonth() + 1).padStart(2, "0")}`;
 
+    const customer = await getdb.customer.findUnique({
+      where: { id: data.customer_id },
+    });
+
+    if (!customer) {
+      throw new Error("Customer not found");
+    }
+
+    if (!customer.is_active) {
+      throw new Error("Inactive customer cannot create deals");
+    }
+
     const lastDeal = await getdb.deal.findFirst({
       where: {
         deal_number: {
@@ -195,6 +207,53 @@ const getAllDeals = async (
       take: limit,
       orderBy: { [orderByField]: orderDirection },
     });
+
+    const FIFTEEN_DAYS = 15 * 24 * 60 * 60 * 1000;
+    const customerIds = [...new Set(deals.map(d => d.customer_id))];
+
+    for (const customerId of customerIds) {
+      const lastDeal = await getdb.deal.findFirst({
+        where: { customer_id: customerId },
+        orderBy: { created_at: "desc" },
+        select: { created_at: true },
+      });
+
+      if (!lastDeal) continue;
+
+      const diff = new Date() - new Date(lastDeal.created_at);
+
+      if (diff > FIFTEEN_DAYS) {
+        await getdb.customer.update({
+          where: { id: customerId },
+          data: {
+            is_active: false,
+            updated_at: new Date(),
+          },
+        });
+      }
+    }
+
+    const customersWithoutDeals = await getdb.customer.findMany({
+      where: {
+        deals: { none: {} },
+        is_active: true,
+      },
+      select: { id: true, created_at: true },
+    });
+
+    for (const customer of customersWithoutDeals) {
+      const diff = new Date() - new Date(customer.created_at);
+
+      if (diff > FIFTEEN_DAYS) {
+        await getdb.customer.update({
+          where: { id: customer.id },
+          data: {
+            is_active: false,
+            updated_at: new Date(),
+          },
+        });
+      }
+    }
 
     const dealsWithTotals = deals.map((deal) => {
       const sellAmount = (deal.paidItems || []).reduce(

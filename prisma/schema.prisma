@@ -217,6 +217,7 @@ model ReconciliationOpening {
   denomination      Int
   quantity          Int
   amount            Int
+  exchange_rate    Decimal
   currency_id       Int
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
@@ -229,6 +230,7 @@ model ReconciliationClosing {
   denomination      Int
   quantity          Int
   amount            Int
+  exchange_rate    Decimal
   currency_id       Int
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])

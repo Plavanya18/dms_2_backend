@@ -23,6 +23,17 @@ const createReconciliation = async (data, userId) => {
       select: { id: true },
     });
 
+    const tanzaniaCurrency = await getdb.currency.findFirst({
+      where: { code: "TZS" },
+      select: { id: true },
+    });
+
+    if (!tanzaniaCurrency) {
+      throw new Error("Base currency TZS not found in currency table.");
+    }
+
+    const tanzaniaCurrencyId = tanzaniaCurrency.id;
+
     const newReconciliation = await getdb.reconciliation.create({
       data: {
         // status: data.status,
@@ -31,28 +42,95 @@ const createReconciliation = async (data, userId) => {
         created_at: now,
         updated_at: now,
         openingEntries: {
-          create: data.openingEntries.map(entry => ({
-            denomination: entry.denomination,
-            quantity: entry.quantity,
-            amount: entry.amount,
-            currency_id: entry.currency_id,
-          })),
+          create: await Promise.all(
+            data.openingEntries.map(async (entry) => {
+              const existingPair = await getdb.currencyPairRate.findFirst({
+                where: {
+                  base_currency_id: tanzaniaCurrencyId,
+                  quote_currency_id: entry.currency_id,
+                },
+              });
+
+              if (existingPair) {
+                await getdb.currencyPairRate.update({
+                  where: { id: existingPair.id },
+                  data: {
+                    rate: entry.exchange_rate,
+                    effective_at: new Date(),
+                    created_by: userId,
+                  },
+                });
+              } else {
+                await getdb.currencyPairRate.create({
+                  data: {
+                    base_currency_id: tanzaniaCurrencyId,
+                    quote_currency_id: entry.currency_id,
+                    rate: entry.exchange_rate,
+                    effective_at: new Date(),
+                    created_by: userId,
+                  },
+                });
+              }
+
+              return {
+                denomination: entry.denomination,
+                quantity: entry.quantity,
+                amount: entry.amount,
+                exchange_rate: entry.exchange_rate,
+                currency_id: entry.currency_id,
+              };
+            })
+          ),
         },
+
         ...(Array.isArray(data.closingEntries) && data.closingEntries.length > 0 && {
           closingEntries: {
-            create: data.closingEntries.map(entry => ({
-              denomination: entry.denomination,
-              quantity: entry.quantity,
-              amount: entry.amount,
-              currency_id: entry.currency_id,
-            })),
+            create: await Promise.all(
+              data.closingEntries.map(async (entry) => {
+                const existingPair = await getdb.currencyPairRate.findFirst({
+                  where: {
+                    base_currency_id: tanzaniaCurrencyId,
+                    quote_currency_id: entry.currency_id,
+                  },
+                });
+
+                if (existingPair) {
+                  await getdb.currencyPairRate.update({
+                    where: { id: existingPair.id },
+                    data: {
+                      rate: entry.exchange_rate,
+                      effective_at: new Date(),
+                      created_by: userId,
+                    },
+                  });
+                } else {
+                  await getdb.currencyPairRate.create({
+                    data: {
+                      base_currency_id: tanzaniaCurrencyId,
+                      quote_currency_id: entry.currency_id,
+                      rate: entry.exchange_rate,
+                      effective_at: new Date(),
+                      created_by: userId,
+                    },
+                  });
+                }
+
+                return {
+                  denomination: entry.denomination,
+                  quantity: entry.quantity,
+                  amount: entry.amount,
+                  exchange_rate: entry.exchange_rate,
+                  currency_id: entry.currency_id,
+                };
+              })
+            ),
           },
         }),
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
-          notes: { create: data.notes.map(note => ({ note })) },
+          notes: { create: data.notes.map((note) => ({ note })) },
         }),
         deals: {
-          create: dealsToday.map(deal => ({ deal_id: deal.id })),
+          create: dealsToday.map((deal) => ({ deal_id: deal.id })),
         },
       },
 

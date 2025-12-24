@@ -41,33 +41,33 @@ const createDeal = async (data, userId) => {
 
     logger.info(`Creating deal: ${deal_number}`);
 
-    const existingPair = await getdb.currencyPairRate.findFirst({
-      where: {
-        base_currency_id: data.buy_currency_id,
-        quote_currency_id: data.sell_currency_id,
-      },
-    });
+    // const existingPair = await getdb.currencyPairRate.findFirst({
+    //   where: {
+    //     base_currency_id: data.buy_currency_id,
+    //     quote_currency_id: data.sell_currency_id,
+    //   },
+    // });
 
-    if (existingPair) {
-      await getdb.currencyPairRate.update({
-        where: { id: existingPair.id },
-        data: {
-          rate: data.exchange_rate,
-          effective_at: new Date(),
-          created_by: userId,
-        },
-      });
-    } else {
-      await getdb.currencyPairRate.create({
-        data: {
-          base_currency_id: data.buy_currency_id,
-          quote_currency_id: data.sell_currency_id,
-          rate: data.exchange_rate,
-          effective_at: new Date(),
-          created_by: userId,
-        },
-      });
-    }
+    // if (existingPair) {
+    //   await getdb.currencyPairRate.update({
+    //     where: { id: existingPair.id },
+    //     data: {
+    //       rate: data.exchange_rate,
+    //       effective_at: new Date(),
+    //       created_by: userId,
+    //     },
+    //   });
+    // } else {
+    //   await getdb.currencyPairRate.create({
+    //     data: {
+    //       base_currency_id: data.buy_currency_id,
+    //       quote_currency_id: data.sell_currency_id,
+    //       rate: data.exchange_rate,
+    //       effective_at: new Date(),
+    //       created_by: userId,
+    //     },
+    //   });
+    // }
 
     const newDeal = await getdb.deal.create({
       data: {

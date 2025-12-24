@@ -37,7 +37,7 @@ const createReconciliation = async (data, userId) => {
     const newReconciliation = await getdb.reconciliation.create({
       data: {
         // status: data.status,
-        status: "Excess",
+        status: "In_Progress",
         created_by: userId,
         created_at: now,
         updated_at: now,

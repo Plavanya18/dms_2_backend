@@ -31,6 +31,7 @@ enum ReconciliationStatusEnum {
   Tallied
   Short
   Excess
+  In_Progress
 }
 
 enum SessionStatus {

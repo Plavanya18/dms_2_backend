@@ -1,7 +1,5 @@
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
-const { convertDealToUSD, buildCurrencyMaps } = require("../utils/currencyConverter");
-const { getLatestUsdRateToINR } = require("./currency.service");
 
 const createCustomer = async (data, userId) => {
   try {
@@ -77,48 +75,62 @@ const getAllCustomers = async (
       include: {
         deals: {
           include: {
-            receivedItems: { include: { currency: true } },
-            paidItems: { include: { currency: true } },
+            receivedItems: true,
+            paidItems: true,
+            buyCurrency: { select: { id: true, code: true, name: true } },
+            sellCurrency: { select: { id: true, code: true, name: true } },
           },
         },
       },
     });
 
-    // const { idToCode, codeToId } = await buildCurrencyMaps();
-    // const usdInrRate = await getLatestUsdRateToINR(codeToId);
+    const tzsCurrency = await getdb.currency.findFirst({
+      where: { code: "TZS" },
+    });
 
-    // const result = [];
+    if (!tzsCurrency) {
+      throw new Error("TZS currency not found");
+    }
 
-    // for (const customer of customers) {
-    //   let creditUSD = 0;
-    //   let debitUSD = 0;
+    const currencyRates = await getdb.currencyPairRate.findMany({
+      where: { base_currency_id: tzsCurrency.id },
+    });
 
-    //   for (const deal of customer.deals) {
-    //     const usdAmount = await convertDealToUSD(
-    //       deal,
-    //       idToCode,
-    //       usdInrRate
-    //     );
+    const rateMap = {};
+    for (const r of currencyRates) {
+      rateMap[r.quote_currency_id] = Number(r.rate);
+    }
 
-    //     if (deal.deal_type === "sell") {
-    //       creditUSD += usdAmount;
-    //     } else {
-    //       debitUSD += usdAmount;
-    //     }
-    //   }
+    const result = [];
 
-    //   const net = creditUSD - debitUSD;
+    for (const customer of customers) {
+      let creditTZS = 0;
+      let debitTZS = 0;
 
-    //   result.push({
-    //     ...customer,
-    //     balance: `${Math.abs(net).toFixed(2)}${net >= 0 ? "CR" : "DB"}`,
-    //     creditUSD: creditUSD.toFixed(2),
-    //     debitUSD: debitUSD.toFixed(2),
-    //   });
-    // }
+      for (const deal of customer.deals) {
+        const rate = rateMap[deal.sell_currency_id];
+
+        const valueTZS = Number(deal.amount_to_be_paid) * rate;
+
+        if (deal.deal_type === "sell") {
+          creditTZS += valueTZS;
+        } else {
+          debitTZS += valueTZS;
+        }
+      }
+
+      const net = creditTZS - debitTZS;
+
+      result.push({
+        ...customer,
+        credit: creditTZS.toFixed(2),
+        debit: debitTZS.toFixed(2),
+        balance: `${Math.abs(net).toFixed(2)}${net >= 0 ? "CR" : "DB"}`,
+      });
+    }
 
     return {
-      data: customers,
+      data: result,
       pagination: {
         total,
         page,
@@ -127,6 +139,7 @@ const getAllCustomers = async (
       },
     };
   } catch (error) {
+    console.error(error);
     throw error;
   }
 };
@@ -141,6 +154,8 @@ const getCustomerById = async (id) => {
           include: {
             receivedItems: { include: { currency: true } },
             paidItems: { include: { currency: true } },
+            buyCurrency: { select: { id: true, code: true, name: true } },
+            sellCurrency: { select: { id: true, code: true, name: true } },
           },
         },
       },

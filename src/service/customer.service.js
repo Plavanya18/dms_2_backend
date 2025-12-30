@@ -1,13 +1,29 @@
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
-const { convertDealToUSD, buildCurrencyMaps } = require("../utils/currencyConverter");
-const { getLatestUsdRateToINR } = require("./currency.service");
 
 const createCustomer = async (data, userId) => {
   try {
+    const existingCustomer = await getdb.customer.findFirst({
+      where: {
+        OR: [
+          { email: data.email },
+          { phone_number: data.phone_number },
+        ],
+      },
+    });
+
+    if (existingCustomer) {
+      throw new Error(
+        existingCustomer.email === data.email
+          ? "Customer with this email already exists"
+          : "Customer with this phone number already exists"
+      );
+    }
+
     const newCustomer = await getdb.customer.create({
       data: {
         ...data,
+        is_active: true,
         created_by: userId,
         created_at: new Date(),
         updated_at: new Date(),
@@ -26,21 +42,29 @@ const getAllCustomers = async (
   page = 1,
   limit = 10,
   search = "",
-  orderByField = "created_at",
-  orderDirection = "desc"
+  searchType = "all",
 ) => {
   try {
     const skip = (page - 1) * limit;
 
-    const where = search
-      ? {
+    let where = {};
+
+    if (search) {
+      if (searchType === "name") {
+        where = {
+          name: { contains: search },
+          is_active: true,
+        };
+      } else {
+        where = {
           OR: [
             { name: { contains: search } },
             { phone_number: { contains: search } },
             { email: { contains: search } },
           ],
-        }
-      : {};
+        };
+      }
+    }
 
     const total = await getdb.customer.count({ where });
 
@@ -48,51 +72,60 @@ const getAllCustomers = async (
       where,
       skip,
       take: limit,
-      orderBy: { [orderByField]: orderDirection },
       include: {
         deals: {
           include: {
-            received_items: {
-              include: { currency: true },
-            },
-            paid_items: {
-              include: { currency: true },
-            },
+            receivedItems: true,
+            paidItems: true,
+            buyCurrency: { select: { id: true, code: true, name: true } },
+            sellCurrency: { select: { id: true, code: true, name: true } },
           },
         },
       },
     });
 
-    const { idToCode, codeToId } = await buildCurrencyMaps();
-    const usdInrRate = await getLatestUsdRateToINR(codeToId);
+    const tzsCurrency = await getdb.currency.findFirst({
+      where: { code: "TZS" },
+    });
+
+    if (!tzsCurrency) {
+      throw new Error("TZS currency not found");
+    }
+
+    const currencyRates = await getdb.currencyPairRate.findMany({
+      where: { base_currency_id: tzsCurrency.id },
+    });
+
+    const rateMap = {};
+    for (const r of currencyRates) {
+      rateMap[r.quote_currency_id] = Number(r.rate);
+    }
 
     const result = [];
 
     for (const customer of customers) {
-      let creditUSD = 0;
-      let debitUSD = 0;
+      let creditTZS = 0;
+      let debitTZS = 0;
 
       for (const deal of customer.deals) {
-        const usdAmount = await convertDealToUSD(
-          deal,
-          idToCode,
-          usdInrRate
-        );
+        const rate = rateMap[deal.sell_currency_id];
+
+        const valueTZS = Number(deal.amount_to_be_paid) * rate;
 
         if (deal.deal_type === "sell") {
-          creditUSD += usdAmount;
+          creditTZS += valueTZS;
         } else {
-          debitUSD += usdAmount;
+          debitTZS += valueTZS;
         }
       }
 
-      const net = creditUSD - debitUSD;
+      const net = creditTZS - debitTZS;
 
       result.push({
         ...customer,
+        credit: creditTZS.toFixed(2),
+        debit: debitTZS.toFixed(2),
         balance: `${Math.abs(net).toFixed(2)}${net >= 0 ? "CR" : "DB"}`,
-        creditUSD: creditUSD.toFixed(2),
-        debitUSD: debitUSD.toFixed(2),
       });
     }
 
@@ -104,12 +137,9 @@ const getAllCustomers = async (
         limit,
         totalPages: Math.ceil(total / limit),
       },
-      sort: {
-        field: orderByField,
-        direction: orderDirection,
-      },
     };
   } catch (error) {
+    console.error(error);
     throw error;
   }
 };
@@ -122,8 +152,10 @@ const getCustomerById = async (id) => {
         createdBy: true,
         deals: {
           include: {
-            received_items: { include: { currency: true } },
-            paid_items: { include: { currency: true } },
+            receivedItems: { include: { currency: true } },
+            paidItems: { include: { currency: true } },
+            buyCurrency: { select: { id: true, code: true, name: true } },
+            sellCurrency: { select: { id: true, code: true, name: true } },
           },
         },
       },
@@ -136,20 +168,20 @@ const getCustomerById = async (id) => {
       const isBuy = deal.deal_type === "buy";
 
       // Buy amount & currency
-      const buyAmount = (deal.received_items || []).reduce(
+      const buyAmount = (deal.receivedItems || []).reduce(
         (sum, item) => sum + Number(item.total || 0),
         0
       );
       const buyCurrency =
-        deal.received_items?.length > 0 ? deal.received_items[0].currency.code : null;
+        deal.receivedItems?.length > 0 ? deal.receivedItems[0].currency.code : null;
 
       // Sell amount & currency
-      const sellAmount = (deal.paid_items || []).reduce(
+      const sellAmount = (deal.paidItems || []).reduce(
         (sum, item) => sum + Number(item.total || 0),
         0
       );
       const sellCurrency =
-        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
+        deal.paidItems?.length > 0 ? deal.paidItems[0].currency.code : null;
 
       // Format date yyyy/mm/dd
       const date = new Date(deal.created_at);

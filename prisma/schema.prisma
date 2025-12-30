@@ -31,6 +31,7 @@ enum ReconciliationStatusEnum {
   Tallied
   Short
   Excess
+  In_Progress
 }
 
 enum SessionStatus {
@@ -62,10 +63,10 @@ model User {
 
   details         UserDetail?
   sessions        UserSession[]
+  customers       Customer[]
   dealsCreated    Deal[]           @relation("DealCreatedBy")
-  dealsActionBy   Deal[]           @relation("DealActionBy")
-  customers       Customer[]       @relation("CustomerCreatedBy")
-  reconciliations Reconciliation[] @relation("ReconciliationCreatedBy")
+  dealsActioned   Deal[]           @relation("DealActionBy")
+  reconciliations Reconciliation[]
 }
 
 model UserDetail {
@@ -103,35 +104,53 @@ model Currency {
   created_at DateTime
   updated_at DateTime
 
-  receivedEntries        DealReceived[]
-  paidEntries            DealPaid[]
+  receivedItems DealReceived[]
+  paidItems     DealPaid[]
+  buyDeals  Deal[] @relation("BuyCurrency")
+  sellDeals Deal[] @relation("SellCurrency")
   openingReconciliations ReconciliationOpening[]
   closingReconciliations ReconciliationClosing[]
+  baseRates  CurrencyPairRate[] @relation("BaseCurrency")
+  quoteRates CurrencyPairRate[] @relation("QuoteCurrency")
+}
+
+model CurrencyPairRate {
+  id                Int      @id @default(autoincrement())
+  base_currency_id  Int
+  quote_currency_id Int
+  rate              Decimal
+  effective_at      DateTime
+  created_by        Int?
+
+  baseCurrency  Currency @relation("BaseCurrency", fields: [base_currency_id], references: [id])
+  quoteCurrency Currency @relation("QuoteCurrency", fields: [quote_currency_id], references: [id])
 }
 
 model Customer {
   id           Int      @id @default(autoincrement())
   name         String
   phone_number String
-  email        String?
+  email        String   @unique
+  is_active    Boolean
   created_by   Int
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  created_at   DateTime
+  updated_at   DateTime
 
-  createdBy User @relation("CustomerCreatedBy", fields: [created_by], references: [id])
-
-  deals Deal[]
+  createdBy User  @relation(fields: [created_by], references: [id])
+  deals     Deal[]
 }
 
 model Deal {
   id               Int             @id @default(autoincrement())
   deal_number      String          @unique
   customer_id      Int
+  buy_currency_id  Int
+  sell_currency_id Int
   deal_type        DealType
   transaction_mode TransactionMode
   amount           Decimal
-  rate             Decimal
-  amount_to_be_paid  Decimal
+  exchange_rate    Decimal
+  amount_to_be_paid Decimal
   remarks          String?
   action_reason    String?
   status           DealStatusEnum
@@ -142,24 +161,25 @@ model Deal {
   updated_at       DateTime
   deleted_at       DateTime?
 
-  customer Customer @relation(fields: [customer_id], references: [id])
+  customer     Customer @relation(fields: [customer_id], references: [id])
+  buyCurrency  Currency @relation("BuyCurrency", fields: [buy_currency_id], references: [id])
+  sellCurrency Currency @relation("SellCurrency", fields: [sell_currency_id], references: [id])
 
   createdBy User  @relation("DealCreatedBy", fields: [created_by], references: [id])
   actionBy  User? @relation("DealActionBy", fields: [action_by], references: [id])
 
-  received_items DealReceived[]
-  paid_items     DealPaid[]
-
+  receivedItems DealReceived[]
+  paidItems     DealPaid[]
   reconciliations ReconciliationDeal[]
 }
 
 model DealReceived {
   id          Int    @id @default(autoincrement())
   deal_id     Int
+  currency_id Int
   price       String
   quantity    String
   total       String
-  currency_id Int
 
   deal     Deal     @relation(fields: [deal_id], references: [id])
   currency Currency @relation(fields: [currency_id], references: [id])
@@ -168,23 +188,23 @@ model DealReceived {
 model DealPaid {
   id          Int    @id @default(autoincrement())
   deal_id     Int
+  currency_id Int
   price       String
   quantity    String
   total       String
-  currency_id Int
 
   deal     Deal     @relation(fields: [deal_id], references: [id])
   currency Currency @relation(fields: [currency_id], references: [id])
 }
 
 model Reconciliation {
-  id         Int                      @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   status     ReconciliationStatusEnum
   created_by Int
   created_at DateTime
   updated_at DateTime
 
-  createdBy User @relation("ReconciliationCreatedBy", fields: [created_by], references: [id])
+  createdBy User @relation(fields: [created_by], references: [id])
 
   openingEntries ReconciliationOpening[]
   closingEntries ReconciliationClosing[]
@@ -193,11 +213,12 @@ model Reconciliation {
 }
 
 model ReconciliationOpening {
-  id                Int @id @default(autoincrement())
+  id                Int     @id @default(autoincrement())
   reconciliation_id Int
   denomination      Int
   quantity          Int
   amount            Int
+  exchange_rate    Decimal
   currency_id       Int
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
@@ -205,11 +226,12 @@ model ReconciliationOpening {
 }
 
 model ReconciliationClosing {
-  id                Int @id @default(autoincrement())
+  id                Int     @id @default(autoincrement())
   reconciliation_id Int
   denomination      Int
   quantity          Int
   amount            Int
+  exchange_rate    Decimal
   currency_id       Int
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])

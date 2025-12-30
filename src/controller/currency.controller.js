@@ -81,15 +81,6 @@ const deleteCurrencyController = async (req, res) => {
   }
 };
 
-const getAllCurrencyUSD = async (req, res) => {
-  try {
-    const currenciesUSD = await getAllCurrenciesInUSD();
-    res.json({ currencies: currenciesUSD });
-  } catch (error) {
-    console.error("Failed to get all currencies in USD:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
 
 module.exports = {
   createCurrencyController,
@@ -97,5 +88,4 @@ module.exports = {
   getCurrencyByIdController,
   updateCurrencyController,
   deleteCurrencyController,
-  getAllCurrencyUSD,
 };

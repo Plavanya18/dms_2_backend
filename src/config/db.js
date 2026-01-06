@@ -1,5 +1,10 @@
-const { PrismaClient } = require("@prisma/client");
 
-const getdb = new PrismaClient();
+const { PrismaClient } = require('@prisma/client');
 
-module.exports = { getdb };
+const prisma = new PrismaClient({
+  log: ['error', 'warn'],
+});
+
+module.exports = prisma;
+
+

@@ -1,7 +1,9 @@
-const app = require('./app');
+// src/index.js
 const dotenv = require('dotenv');
+dotenv.config(); // LOAD ENV FIRST
+
+const app = require('./app');
 const logger = require('./config/logger');
-dotenv.config();
 
 const PORT = process.env.PORT || 3000;
 

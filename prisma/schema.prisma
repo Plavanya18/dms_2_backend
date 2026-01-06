@@ -83,7 +83,7 @@ model UserDetail {
 
   user User @relation(fields: [user_id], references: [id])
 
-  @@map(userdetail)
+  @@map("userdetail")
 }
 
 model UserSession {
@@ -99,7 +99,7 @@ model UserSession {
 
   user User @relation(fields: [user_id], references: [id])
 
-  @@map(usersession)
+  @@map("usersession")
 }
 
 model Currency {

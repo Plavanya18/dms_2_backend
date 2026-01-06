@@ -68,6 +68,7 @@ model User {
   dealsActioned   Deal[]           @relation("DealActionBy")
   reconciliations Reconciliation[]
 
+  @@map("user")
 }
 
 model UserDetail {
@@ -80,7 +81,9 @@ model UserDetail {
   created_at            DateTime
   updated_at            DateTime
 
-  user User @relation(fields: [user_id], references: [id])4
+  user User @relation(fields: [user_id], references: [id])
+
+  @@map(userdetail)
 }
 
 model UserSession {
@@ -95,6 +98,8 @@ model UserSession {
   updated_at     DateTime
 
   user User @relation(fields: [user_id], references: [id])
+
+  @@map(usersession)
 }
 
 model Currency {

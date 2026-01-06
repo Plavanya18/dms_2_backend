@@ -118,6 +118,8 @@ model Currency {
   closingReconciliations ReconciliationClosing[]
   baseRates  CurrencyPairRate[] @relation("BaseCurrency")
   quoteRates CurrencyPairRate[] @relation("QuoteCurrency")
+
+  @@map("currency")
 }
 
 model CurrencyPairRate {
@@ -130,6 +132,8 @@ model CurrencyPairRate {
 
   baseCurrency  Currency @relation("BaseCurrency", fields: [base_currency_id], references: [id])
   quoteCurrency Currency @relation("QuoteCurrency", fields: [quote_currency_id], references: [id])
+
+  @@map("currencypairrate")
 }
 
 model Customer {
@@ -144,6 +148,8 @@ model Customer {
 
   createdBy User  @relation(fields: [created_by], references: [id])
   deals     Deal[]
+
+  @@map("customer")
 }
 
 model Deal {
@@ -177,6 +183,8 @@ model Deal {
   receivedItems DealReceived[]
   paidItems     DealPaid[]
   reconciliations ReconciliationDeal[]
+
+  @@map("deal")
 }
 
 model DealReceived {
@@ -189,6 +197,8 @@ model DealReceived {
 
   deal     Deal     @relation(fields: [deal_id], references: [id])
   currency Currency @relation(fields: [currency_id], references: [id])
+
+  @@map("dealreceived")
 }
 
 model DealPaid {
@@ -201,6 +211,8 @@ model DealPaid {
 
   deal     Deal     @relation(fields: [deal_id], references: [id])
   currency Currency @relation(fields: [currency_id], references: [id])
+
+  @@map("dealpaid")
 }
 
 model Reconciliation {
@@ -216,6 +228,8 @@ model Reconciliation {
   closingEntries ReconciliationClosing[]
   notes          ReconciliationNote[]
   deals          ReconciliationDeal[]
+
+  @@map("reconciliation")
 }
 
 model ReconciliationOpening {
@@ -229,6 +243,8 @@ model ReconciliationOpening {
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
   currency       Currency       @relation(fields: [currency_id], references: [id])
+
+  @@map("reconciliationopening")
 }
 
 model ReconciliationClosing {
@@ -242,6 +258,8 @@ model ReconciliationClosing {
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
   currency       Currency       @relation(fields: [currency_id], references: [id])
+
+  @@map("reconciliationclosing")
 }
 
 model ReconciliationNote {
@@ -251,6 +269,8 @@ model ReconciliationNote {
   created_at        DateTime @default(now())
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
+
+  @@map("reconciliationnote")
 }
 
 model ReconciliationDeal {
@@ -260,4 +280,6 @@ model ReconciliationDeal {
 
   reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id])
   deal           Deal           @relation(fields: [deal_id], references: [id])
+
+  @@map("reconciliationdeal")
 }

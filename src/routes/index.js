@@ -45,8 +45,8 @@ const publicPaths = [
 ];
 
 router.use((req, res, next) => {
-  const path = req.path.replace(/\/$/, "");
-
+  const path = req.baseUrl + req.path; 
+  
   if (publicPaths.includes(path)) {
     return next();
   }

@@ -37,16 +37,16 @@ const defaultRoutes = [
 ];
 
 const publicPaths = [
-  '/auth/login',
-  '/auth/verify-otp',
-  '/auth/change-password',
-  '/auth/request-password-reset',
-  '/auth/reset-password',
+  '/api/auth/login',
+  '/api/auth/verify-otp',
+  '/api/auth/change-password',
+  '/api/auth/request-password-reset',
+  '/api/auth/reset-password',
 ];
 
 router.use((req, res, next) => {
   const path = req.baseUrl + req.path; 
-  
+
   if (publicPaths.includes(path)) {
     return next();
   }

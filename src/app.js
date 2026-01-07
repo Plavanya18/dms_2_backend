@@ -21,7 +21,7 @@ app.use(compression());
 // enable cors
 app.use(cors());
 
-app.use('/', routes); 
+app.use('/api', routes); 
 // simple test route
 app.get('/', (req, res) => {
   res.send({ message: 'Deal Management Backend is running 🚀' });

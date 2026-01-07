@@ -44,19 +44,8 @@ const publicPaths = [
   '/auth/reset-password',
 ];
 
-// router.use((req, res, next) => {
-//   const path = req.path.replace(/\/$/, "");
-
-//   if (publicPaths.includes(path)) {
-//     return next();
-//   }
-
-//   return verifyToken(req, res, next);
-// });
 router.use((req, res, next) => {
-  let path = req.originalUrl.replace(/\/$/, "");
-  if (path.startsWith('/api')) {
-  }
+  const path = req.path.replace(/\/$/, "");
 
   if (publicPaths.includes(path)) {
     return next();

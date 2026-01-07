@@ -11,37 +11,37 @@ const router = express.Router();
 
 const defaultRoutes = [
   {
-    path: '/auth',
+    path: '/api/auth',
     route: authRoutes,
   },
   {
-    path: '/user',
+    path: '/api/user',
     route: userRoute
   },
   {
-    path: '/currency',
+    path: '/api/currency',
     route: currencyRoute
   },
   {
-    path: '/deal',
+    path: '/api/deal',
     route: dealRoute
   },
   {
-    path: '/reconciliation',
+    path: '/api/reconciliation',
     route: reconciliationRoute
   },
   {
-    path: '/customer',
+    path: '/api/customer',
     route: customerRoute
   }
 ];
 
 const publicPaths = [
-  '/auth/login',
-  '/auth/verify-otp',
-  '/auth/change-password',
-  '/auth/request-password-reset',
-  '/auth/reset-password',
+  '/api/auth/login',
+  '/api/auth/verify-otp',
+  '/api/auth/change-password',
+  '/api/auth/request-password-reset',
+  '/api/auth/reset-password',
 ];
 
 router.use((req, res, next) => {

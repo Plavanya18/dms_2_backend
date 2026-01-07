@@ -24,7 +24,7 @@ app.use(cors());
 app.use('/', routes); 
 // simple test route
 app.get('/', (req, res) => {
-  res.send({ message: 'Deal Management Backend is running 🚀' });
+  res.send({ message: 'Deal Management Backend is running successfully' });
 });
 
 module.exports = app;

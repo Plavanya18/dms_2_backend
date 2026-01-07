@@ -270,7 +270,7 @@ const changePasswordByEmail = async (email, oldPassword, newPassword) => {
   }
 };
 
-const FRONTEND_URL = "http://localhost:8082/reset-password";
+const FRONTEND_URL = "http://24.199.110.37/reset-password";
 
 const sendResetPasswordEmail = async (email) => {
   const user = await getdb.user.findUnique({ where: { email } });

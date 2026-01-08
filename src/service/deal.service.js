@@ -10,6 +10,18 @@ const createDeal = async (data, userId) => {
     const today = new Date();
     const datePart = `${String(today.getDate()).padStart(2, "0")}${String(today.getMonth() + 1).padStart(2, "0")}`;
 
+    const customer = await getdb.customer.findUnique({
+      where: { id: data.customer_id },
+    });
+
+    if (!customer) {
+      throw new Error("Customer not found");
+    }
+
+    if (!customer.is_active) {
+      throw new Error("Inactive customer cannot create deals");
+    }
+
     const lastDeal = await getdb.deal.findFirst({
       where: {
         deal_number: {
@@ -29,31 +41,61 @@ const createDeal = async (data, userId) => {
 
     logger.info(`Creating deal: ${deal_number}`);
 
+    // const existingPair = await getdb.currencyPairRate.findFirst({
+    //   where: {
+    //     base_currency_id: data.buy_currency_id,
+    //     quote_currency_id: data.sell_currency_id,
+    //   },
+    // });
+
+    // if (existingPair) {
+    //   await getdb.currencyPairRate.update({
+    //     where: { id: existingPair.id },
+    //     data: {
+    //       rate: data.exchange_rate,
+    //       effective_at: new Date(),
+    //       created_by: userId,
+    //     },
+    //   });
+    // } else {
+    //   await getdb.currencyPairRate.create({
+    //     data: {
+    //       base_currency_id: data.buy_currency_id,
+    //       quote_currency_id: data.sell_currency_id,
+    //       rate: data.exchange_rate,
+    //       effective_at: new Date(),
+    //       created_by: userId,
+    //     },
+    //   });
+    // }
+
     const newDeal = await getdb.deal.create({
       data: {
         deal_number,
         customer_id: data.customer_id,
         phone_number: data.phone_number,
         deal_type: data.deal_type,
+        buy_currency_id: data.buy_currency_id,
+        sell_currency_id: data.sell_currency_id,
         transaction_mode: data.transaction_mode,
         amount: data.amount,
-        rate: data.rate,
+        exchange_rate: data.exchange_rate,
         amount_to_be_paid: data.amount_to_be_paid,
         remarks: data.remarks || null,
         status: data.status,
         created_by: userId,
         created_at: new Date(),
         updated_at: new Date(),
-        received_items: {
-          create: (data.received_items || []).map(item => ({
+        receivedItems: {
+          create: (data.receivedItems || []).map(item => ({
             price: item.price,
             quantity: item.quantity,
             total: item.total,
             currency_id: item.currency_id,
           })),
         },
-        paid_items: {
-          create: (data.paid_items || []).map(item => ({
+        paidItems: {
+          create: (data.paidItems || []).map(item => ({
             price: item.price,
             quantity: item.quantity,
             total: item.total,
@@ -62,8 +104,8 @@ const createDeal = async (data, userId) => {
         },
       },
       include: {
-        received_items: true,
-        paid_items: true,
+        receivedItems: true,
+        paidItems: true,
       },
     });
 
@@ -107,12 +149,12 @@ const getAllDeals = async (
       where.OR = where.OR
         ? [
             ...where.OR,
-            { received_items: { some: { currency: { code: { contains: currency } } } } },
-            { paid_items: { some: { currency: { code: { contains: currency } } } } },
+            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+            { paidItems: { some: { currency: { code: { contains: currency } } } } },
           ]
         : [
-            { received_items: { some: { currency: { code: { contains: currency } } } } },
-            { paid_items: { some: { currency: { code: { contains: currency } } } } },
+            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+            { paidItems: { some: { currency: { code: { contains: currency } } } } },
           ];
     }
 
@@ -152,10 +194,12 @@ const getAllDeals = async (
       where,
       include: {
         customer:{ select:{ id: true, name: true, phone_number: true, email: true} },
-        received_items: {
+        buyCurrency: { select: { id: true, code: true, name: true } },
+        sellCurrency: { select: { id: true, code: true, name: true } },
+        receivedItems: {
           include: { currency: { select: { id: true, code: true, name: true } } },
         },
-        paid_items: {
+        paidItems: {
           include: { currency: { select: { id: true, code: true, name: true } } },
         },
         createdBy: { select: { id: true, full_name: true, email: true } },
@@ -166,32 +210,103 @@ const getAllDeals = async (
       orderBy: { [orderByField]: orderDirection },
     });
 
+    const FIFTEEN_DAYS = 15 * 24 * 60 * 60 * 1000;
+    const customerIds = [...new Set(deals.map(d => d.customer_id))];
+
+    for (const customerId of customerIds) {
+      const lastDeal = await getdb.deal.findFirst({
+        where: { customer_id: customerId },
+        orderBy: { created_at: "desc" },
+        select: { created_at: true },
+      });
+
+      if (!lastDeal) continue;
+
+      const diff = new Date() - new Date(lastDeal.created_at);
+
+      if (diff > FIFTEEN_DAYS) {
+        await getdb.customer.update({
+          where: { id: customerId },
+          data: {
+            is_active: false,
+            updated_at: new Date(),
+          },
+        });
+      }
+    }
+
+    const customersWithoutDeals = await getdb.customer.findMany({
+      where: {
+        deals: { none: {} },
+        is_active: true,
+      },
+      select: { id: true, created_at: true },
+    });
+
+    for (const customer of customersWithoutDeals) {
+      const diff = new Date() - new Date(customer.created_at);
+
+      if (diff > FIFTEEN_DAYS) {
+        await getdb.customer.update({
+          where: { id: customer.id },
+          data: {
+            is_active: false,
+            updated_at: new Date(),
+          },
+        });
+      }
+    }
+
     const dealsWithTotals = deals.map((deal) => {
-      const sellAmount = (deal.paid_items || []).reduce(
+      const sellAmount = (deal.paidItems || []).reduce(
         (acc, item) => acc + Number(item.total || 0),
         0
       );
 
-      const buyAmount = (deal.received_items || []).reduce(
+      const buyAmount = (deal.receivedItems || []).reduce(
         (acc, item) => acc + Number(item.total || 0),
         0
       );
-
-      const sellCurrency =
-        deal.paid_items?.length > 0 ? deal.paid_items[0].currency.code : null;
-
-      const buyCurrency =
-        deal.received_items?.length > 0 ? deal.received_items[0].currency.code : null;
-
       return {
         ...deal,
         buyAmount,
         sellAmount,
-        buyCurrency,
-        sellCurrency,
-        profit: buyAmount - sellAmount,
       };
     });
+
+    const getLatestRate = async (currencyId) => {
+      const pair = await getdb.currencyPairRate.findFirst({
+        where: { quote_currency_id: currencyId },
+        orderBy: { effective_at: "desc" },
+        select: { rate: true },
+      });
+      return pair?.rate ? Number(pair.rate) : 1;
+    };
+
+    const convertToTZS = async (amount, currencyId) => {
+      const rate = await getLatestRate(currencyId);
+      return Number(amount) * rate;
+    };
+
+    const calculateTotals = async (dealsArray) => {
+      let buyAmount = 0;
+      let sellAmount = 0;
+
+      for (const deal of dealsArray) {
+        const converted = await convertToTZS(deal.amount_to_be_paid, deal.sell_currency_id);
+        if (deal.deal_type === "buy") {
+          buyAmount += converted;
+        } else {
+          sellAmount += converted;
+        }
+      }
+
+      return {
+        buyAmount: Number(buyAmount.toFixed(2)),
+        sellAmount: Number(sellAmount.toFixed(2)),
+        profit: Number((buyAmount - sellAmount).toFixed(2)),
+      };
+    };
 
     const endToday = new Date();
     endToday.setHours(23, 59, 59, 999);
@@ -207,81 +322,18 @@ const getAllDeals = async (
 
     const todayDeals = await getdb.deal.findMany({
       where: { created_at: { gte: startToday, lte: endToday } },
-      include: { received_items: true, paid_items: true },
+      include: { receivedItems: true, paidItems: true },
     });
 
     const yesterdayDeals = await getdb.deal.findMany({
       where: { created_at: { gte: startYesterday, lte: endYesterday } },
-      include: { received_items: true, paid_items: true },
+      include: { receivedItems: true, paidItems: true },
     });
 
-    // get latest currency rate to INR
-    const getLatestRateToINR = async (currencyCode) => {
-      const deal = await getdb.deal.findFirst({
-        where: {
-          OR: [
-            { received_items: { some: { currency: { code: currencyCode } } } },
-            { paid_items: { some: { currency: { code: currencyCode } } } },
-          ],
-        },
-        orderBy: { created_at: "desc" },
-        select: { rate: true },
-      });
-      return deal?.rate ? Number(deal.rate) : 1;
-    };
+    const todayStats = await calculateTotals(todayDeals);
+    const yesterdayStats = await calculateTotals(yesterdayDeals);
 
-    // get latest USD rate
-    const getLatestUsdRate = async () => {
-      const deal = await getdb.deal.findFirst({
-        where: {
-          OR: [
-            { received_items: { some: { currency: { code: "USD" } } } },
-            { paid_items: { some: { currency: { code: "USD" } } } },
-          ],
-        },
-        orderBy: { created_at: "desc" },
-        select: { rate: true },
-      });
-      return deal?.rate ? Number(deal.rate) : 1;
-    };
-
-    // convert ANY currency → INR → USD
-    const convertToUSD = async (amount, currencyCode, usdRate) => {
-      if (!amount) return 0;
-
-      const rateToINR = await getLatestRateToINR(currencyCode);
-      const amountInINR = amount * rateToINR;
-
-      return amountInINR / usdRate;
-    };
-
-    //CALCULATE TOTALS FOR TODAY/YESTERDAY (USD normalized)
-    const calculateTotalsUSD = async (dealsArray, usdRate) => {
-      let buyUSD = 0;
-      let sellUSD = 0;
-    
-      for (const deal of dealsArray) {
-        for (const item of deal.paid_items || []) {
-          const code = item.currency?.code;
-          sellUSD += await convertToUSD(Number(item.total || 0), code, usdRate);
-        }
-        for (const item of deal.received_items || []) {
-          const code = item.currency?.code;
-          buyUSD += await convertToUSD(Number(item.total || 0), code, usdRate);
-        }
-      }
-      return {
-        buyAmount: Number(buyUSD.toFixed(2)),
-        sellAmount: Number(sellUSD.toFixed(2)),
-        profit: Number((buyUSD - sellUSD).toFixed(2)),
-      };
-    };
-
-    const usdRate = await getLatestUsdRate();
-    const today = await calculateTotalsUSD(todayDeals, usdRate);
-    const yesterday = await calculateTotalsUSD(yesterdayDeals, usdRate);
-
-    const percentage = (todayVal, yestVal) => {
+    const percentageChange = (todayVal, yestVal) => {
       if (yestVal === 0) return todayVal > 0 ? 100 : 0;
       return Number((((todayVal - yestVal) / yestVal) * 100).toFixed(2));
     };
@@ -289,25 +341,25 @@ const getAllDeals = async (
     const stats = {
       today: {
         dealCount: todayDeals.length,
-        buyAmount: today.buyAmount,
-        sellAmount: today.sellAmount,
-        profit: today.profit, 
+        buyAmount: todayStats.buyAmount,
+        sellAmount: todayStats.sellAmount,
+        profit: todayStats.profit,
       },
       yesterdayPercentage: {
-        dealCount: percentage(todayDeals.length, yesterdayDeals.length),
-        buyAmount: percentage(today.buyAmount, yesterday.buyAmount),
-        sellAmount: percentage(today.sellAmount, yesterday.sellAmount),
-        profit: percentage(today.profit, yesterday.profit),
+        dealCount: percentageChange(todayDeals.length, yesterdayDeals.length),
+        buyAmount: percentageChange(todayStats.buyAmount, yesterdayStats.buyAmount),
+        sellAmount: percentageChange(todayStats.sellAmount, yesterdayStats.sellAmount),
+        profit: percentageChange(todayStats.profit, yesterdayStats.profit),
       },
     };
 
     if (format === "pdf") {
-      const filePath = await generatePDF(dealsWithTotals);
+      const filePath = await geneexchange_ratePDF(dealsWithTotals);
       return { filePath, stats };
     }
 
     if (format === "excel") {
-      const filePath = await generateExcel(dealsWithTotals);
+      const filePath = await geneexchange_rateExcel(dealsWithTotals);
       return { filePath, stats };
     }
 
@@ -322,7 +374,7 @@ const getAllDeals = async (
   }
 };
 
-const generateExcel = async (deals) => {
+const geneexchange_rateExcel = async (deals) => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Deals");
 
@@ -335,7 +387,7 @@ const generateExcel = async (deals) => {
     { header: "Customer Email", key: "customer_email", width: 25 },
     { header: "Buy Amount", key: "buy_amount", width: 15 },
     { header: "Buy Currency", key: "buy_currency", width: 20 },
-    { header: "Rate", key: "rate", width: 10 },
+    { header: "exchange_rate", key: "exchange_rate", width: 10 },
     { header: "Sell Amount", key: "sell_amount", width: 15 },
     { header: "Sell Currency", key: "sell_currency", width: 20 },
     { header: "Status", key: "status", width: 15 },
@@ -344,19 +396,19 @@ const generateExcel = async (deals) => {
   ];
 
   deals.forEach((d) => {
-    const totalReceived = d.received_items.reduce((sum, i) => sum + Number(i.total), 0);
-    const totalPaid = d.paid_items.reduce((sum, i) => sum + Number(i.total), 0);
+    const totalReceived = d.receivedItems.reduce((sum, i) => sum + Number(i.total), 0);
+    const totalPaid = d.paidItems.reduce((sum, i) => sum + Number(i.total), 0);
 
     const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
     const buy_currency =
       d.deal_type === "buy"
-        ? d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
-        : d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+        ? d.paidItems.map((i) => `${i.currency.code}(${i.total})`).join(", ")
+        : d.receivedItems.map((i) => `${i.currency.code}(${i.total})`).join(", ");
     const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
     const sell_currency =
       d.deal_type === "buy"
-        ? d.received_items.map((i) => `${i.currency.code}(${i.total})`).join(", ")
-        : d.paid_items.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+        ? d.receivedItems.map((i) => `${i.currency.code}(${i.total})`).join(", ")
+        : d.paidItems.map((i) => `${i.currency.code}(${i.total})`).join(", ");
 
     sheet.addRow({
       id: d.id,
@@ -367,7 +419,7 @@ const generateExcel = async (deals) => {
       customer_email: d.customer?.email || "",
       buy_amount,
       buy_currency,
-      rate: d.rate,
+      exchange_rate: d.exchange_rate,
       sell_amount,
       sell_currency,
       status: d.status,
@@ -385,7 +437,7 @@ const generateExcel = async (deals) => {
   return filePath;
 };
 
-const generatePDF = async (deals) => {
+const geneexchange_ratePDF = async (deals) => {
   const folder = path.join(__dirname, "../downloads");
   if (!fs.existsSync(folder)) fs.mkdirSync(folder);
 
@@ -399,20 +451,20 @@ const generatePDF = async (deals) => {
   doc.moveDown(1.5);
 
   deals.forEach((d) => {
-    const totalReceived = d.received_items.reduce((sum, i) => sum + Number(i.total), 0);
-    const totalPaid = d.paid_items.reduce((sum, i) => sum + Number(i.total), 0);
+    const totalReceived = d.receivedItems.reduce((sum, i) => sum + Number(i.total), 0);
+    const totalPaid = d.paidItems.reduce((sum, i) => sum + Number(i.total), 0);
 
     const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
     const buy_currency =
       d.deal_type === "buy"
-        ? d.paid_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
-        : d.received_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
+        ? d.paidItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
+        : d.receivedItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
 
     const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
     const sell_currency =
       d.deal_type === "buy"
-        ? d.received_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
-        : d.paid_items.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
+        ? d.receivedItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
+        : d.paidItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
 
     const createdAt =
       d.created_at instanceof Date
@@ -427,7 +479,7 @@ const generatePDF = async (deals) => {
     doc.text(`Customer Email: ${d.customer?.email || ""}`);
     doc.text(`Buy Amount: ${buy_amount}`);
     doc.text(`Buy Currency: ${buy_currency}`);
-    doc.text(`Rate: ${d.rate}`);
+    doc.text(`Exchange_rate: ${d.exchange_rate}`);
     doc.text(`Sell Amount: ${sell_amount}`);
     doc.text(`Sell Currency: ${sell_currency}`);
     doc.text(`Status: ${d.status}`);
@@ -452,8 +504,8 @@ const getDealById = async (id) => {
             where: { id: Number(id) },
             include: {
               customer:{ select:{ id: true, name: true, phone_number: true, email: true} },
-              received_items: { include: { currency: true } },
-              paid_items: { include: { currency: true } },
+              receivedItems: { include: { currency: true } },
+              paidItems: { include: { currency: true } },
               createdBy: { select: { id: true, full_name: true, email: true } },
               actionBy: { select: { id: true, full_name: true, email: true } },
             },
@@ -497,44 +549,48 @@ const updateDeal = async (id, data, userId) => {
       throw new Error("Deal not found");
     }
 
+    const updateData = {
+      deal_type: data.deal_type,
+      transaction_mode: data.transaction_mode,
+      amount: data.amount,
+      exchange_rate: data.exchange_rate,
+      remarks: data.remarks || null,
+      status: data.status,
+      action_by: userId,
+      action_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    if (Array.isArray(data.receivedItems)) {
+      updateData.receivedItems = {
+        deleteMany: {},
+        create: data.receivedItems.map(item => ({
+          price: item.price,
+          quantity: item.quantity,
+          total: item.total,
+          currency_id: item.currency_id,
+        })),
+      };
+    }
+
+    if (Array.isArray(data.paidItems)) {
+      updateData.paidItems = {
+        deleteMany: {},
+        create: data.paidItems.map(item => ({
+          price: item.price,
+          quantity: item.quantity,
+          total: item.total,
+          currency_id: item.currency_id,
+        })),
+      };
+    }
+
     const updatedDeal = await getdb.deal.update({
       where: { id: Number(id) },
-      data: {
-        deal_type: data.deal_type,
-        transaction_mode: data.transaction_mode,
-        amount: data.amount,
-        rate: data.rate,
-        remarks: data.remarks || null,
-        status: data.status,
-        action_by: userId,
-        action_at: new Date(),
-        updated_at: new Date(),
-
-        // Delete existing received_items and create new ones
-        received_items: {
-          deleteMany: {}, // deletes all existing for this deal
-          create: data.received_items.map(item => ({
-            price: item.price,
-            quantity: item.quantity,
-            total: (item.price * item.quantity).toString(),
-            currency_id: item.currency_id,
-          })),
-        },
-
-        // Delete existing paid_items and create new ones
-        paid_items: {
-          deleteMany: {},
-          create: data.paid_items.map(item => ({
-            price: item.price,
-            quantity: item.quantity,
-            total: (item.price * item.quantity).toString(),
-            currency_id: item.currency_id,
-          })),
-        },
-      },
+      data: updateData,
       include: {
-        received_items: true,
-        paid_items: true,
+        receivedItems: true,
+        paidItems: true,
       },
     });
 

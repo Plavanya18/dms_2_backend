@@ -100,7 +100,7 @@ const getReconciliationById = async (req, res) => {
 const updateReconciliation = async (req, res) => {
   try {
     const { id } = req.params;
-    const { openingEntries, closingEntries, notes } = req.body;
+    const { openingEntries, closingEntries, notes, status } = req.body;  // <-- include status
     const userId = req.user;
 
     const hasOpening = Array.isArray(openingEntries);
@@ -123,7 +123,7 @@ const updateReconciliation = async (req, res) => {
     const updatedReconciliation =
       await reconciliationService.updateReconciliation(
         id,
-        { openingEntries, closingEntries, notes },
+        { openingEntries, closingEntries, notes , status},
         userId
       );
 

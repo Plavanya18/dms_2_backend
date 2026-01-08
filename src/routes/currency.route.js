@@ -11,7 +11,6 @@ const {
 
 router.post("/", createCurrencyController);
 router.get("/", getAllCurrenciesController);
-router.get("/all", getAllCurrencyUSD);
 router.get("/:id", getCurrencyByIdController);
 router.put("/:id", updateCurrencyController);
 router.delete("/:id", deleteCurrencyController);

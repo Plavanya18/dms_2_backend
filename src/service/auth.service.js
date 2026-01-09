@@ -16,7 +16,9 @@ const loginUser = async (email, password) => {
       include: { details: true },
     });
 
-    if (!user) throw new Error("Invalid credentials");
+    if (!user) {
+      throw new Error("Email not found");
+    }
 
     if (!user.is_active) {
       throw new Error("Your account is deactivated. Please contact admin.");
@@ -61,7 +63,19 @@ const loginUser = async (email, password) => {
         throw new Error("Your account has been locked due to multiple failed login attempts.");
       }
 
-      throw new Error(`Invalid credentials. Attempt ${attempts}/3`);
+      throw new Error("Incorrect password");
+    }
+
+        if (!user.is_active) {
+      throw new Error("Your account is deactivated. Please contact admin.");
+    }
+
+    if (user.force_logout) {
+      await getdb.user.update({
+        where: { id: user.id },
+        data: { force_logout: false, updated_at: timestamp },
+      });
+      logger.info(`Force logout flag cleared for: ${email}`);
     }
 
     if (user.userDetail?.failed_login_attempts > 0) {

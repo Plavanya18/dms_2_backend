@@ -76,13 +76,13 @@ const loginUser = async (email, password) => {
       });
     }
 
-    if (user.must_change_password) {
-      return {
-        status: "FORCE_PASSWORD_CHANGE",
-        message: "You must change your password before logging in.",
-        userId: user.id,
-      };
-    }
+    // if (user.must_change_password) {
+    //   return {
+    //     status: "FORCE_PASSWORD_CHANGE",
+    //     message: "You must change your password before logging in.",
+    //     userId: user.id,
+    //   };
+    // }
 
     const otp = "1234"; 
     // const otp = Math.floor(1000 + Math.random() * 9000).toString();

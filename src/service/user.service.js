@@ -32,7 +32,8 @@ const createUser = async (data) => {
       throw new Error("Email already registered.");
     }
 
-    const plainPassword = generatePassword();
+    // const plainPassword = generatePassword();
+    const plainPassword = "@123";
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
     const user = await getdb.user.create({
@@ -63,28 +64,33 @@ const createUser = async (data) => {
       },
     });
 
-    try {
-      const subject = "Your Forex Portal Login Credentials for DMS_2";
-      await sendEmail(
-        data.email,
-        subject,
-        `Hello ${data.full_name},`,
-        `<div style="font-family: Arial, sans-serif; font-size: 15px; color: #333;">
-          <p>Your account has been created successfully.</p>
-          <p>Login Email: <b>${data.email}</b></p>
-          <p><b>Temporary Password:</b> ${plainPassword}</p>
-          <p>Please log in and change your password immediately.</p>
-          <hr />
-          <p>Regards,<br/>DMS_2 Admin Team</p>
-        </div>`
-      );
-    } catch (emailError) {
-      await getdb.userDetail.delete({ where: { user_id: user.id } });
-      await getdb.user.delete({ where: { id: user.id } });
-      throw new Error("Email could not be delivered. User not created.");
-    }
+    // try {
+    //   const subject = "Your Forex Portal Login Credentials for DMS_2";
+    //   await sendEmail(
+    //     data.email,
+    //     subject,
+    //     `Hello ${data.full_name},`,
+    //     `<div style="font-family: Arial, sans-serif; font-size: 15px; color: #333;">
+    //       <p>Your account has been created successfully.</p>
+    //       <p>Login Email: <b>${data.email}</b></p>
+    //       <p><b>Temporary Password:</b> ${plainPassword}</p>
+    //       <p>Please log in and change your password immediately.</p>
+    //       <hr />
+    //       <p>Regards,<br/>DMS_2 Admin Team</p>
+    //     </div>`
+    //   );
+    // } catch (emailError) {
+    //   await getdb.userDetail.delete({ where: { user_id: user.id } });
+    //   await getdb.user.delete({ where: { id: user.id } });
+    //   throw new Error("Email could not be delivered. User not created.");
+    // }
 
-    return user;
+    // return user;
+
+    return {
+      ...user,
+      temp_password: plainPassword,
+    };
 
   } catch (err) {
     throw err;

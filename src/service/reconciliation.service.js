@@ -34,9 +34,16 @@ const createReconciliation = async (data, userId) => {
 
     const tanzaniaCurrencyId = tanzaniaCurrency.id;
 
+    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
+    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+    
+    const reconciliationStatus = hasOpening && hasClosing
+    ? data?.status ?? "In_Progress"
+    : "In_Progress";
+
     const newReconciliation = await getdb.reconciliation.create({
       data: {
-        status: data?.status ?? "In_Progress",
+        status: reconciliationStatus,
         created_by: userId,
         created_at: now,
         updated_at: now,

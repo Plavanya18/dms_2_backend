@@ -139,8 +139,9 @@ model CurrencyPairRate {
 model Customer {
   id           Int      @id @default(autoincrement())
   name         String
-  phone_number String
-  email        String   @unique
+  phone_number String     @unique
+  deal_type    DealType
+  email        String?     @unique
   is_active    Boolean
   created_by   Int
   created_at   DateTime

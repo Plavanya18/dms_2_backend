@@ -32,7 +32,7 @@ const sendEmail = async (to, subject, text, html = null) => {
     logger.info(`📧 Email sent successfully to ${to}`);
   } catch (error) {
     logger.error(`❌ Failed to send email to ${to}:`, error);
-    throw new Error("Failed to send email");
+    throw new Error(error.message);
   }
 };
 

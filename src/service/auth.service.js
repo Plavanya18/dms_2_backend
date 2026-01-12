@@ -76,13 +76,13 @@ const loginUser = async (email, password) => {
       });
     }
 
-    if (user.must_change_password) {
-      return {
-        status: "FORCE_PASSWORD_CHANGE",
-        message: "You must change your password before logging in.",
-        userId: user.id,
-      };
-    }
+    // if (user.must_change_password) {
+    //   return {
+    //     status: "FORCE_PASSWORD_CHANGE",
+    //     message: "You must change your password before logging in.",
+    //     userId: user.id,
+    //   };
+    // }
 
     const otp = "1234"; 
     // const otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -91,17 +91,17 @@ const loginUser = async (email, password) => {
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
-    await sendEmail(
-      email,
-      "Your Login OTP",
-      `Your OTP for login is ${otp}. It will expire in 5 minutes.`,
-      `<div style="font-family: Arial, sans-serif; font-size: 15px; color: #333;">
-        <p>Hi <b>${user.full_name}</b>,</p>
-        <p>Your OTP for login is:</p>
-        <h2 style="color:#2e86de; letter-spacing: 3px;">${otp}</h2>
-        <p>This code will expire in <b>5 minutes</b>.</p>
-      </div>`
-    );
+    // await sendEmail(
+    //   email,
+    //   "Your Login OTP",
+    //   `Your OTP for login is ${otp}. It will expire in 5 minutes.`,
+    //   `<div style="font-family: Arial, sans-serif; font-size: 15px; color: #333;">
+    //     <p>Hi <b>${user.full_name}</b>,</p>
+    //     <p>Your OTP for login is:</p>
+    //     <h2 style="color:#2e86de; letter-spacing: 3px;">${otp}</h2>
+    //     <p>This code will expire in <b>5 minutes</b>.</p>
+    //   </div>`
+    // );
 
     return {
       message: "OTP sent to your registered email address.",

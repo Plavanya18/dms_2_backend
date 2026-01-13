@@ -6,19 +6,10 @@ const createCustomer = async (data, userId) => {
     const existingCustomer = await getdb.customer.findFirst({
       where: {
         OR: [
-          { email: data.email },
           { phone_number: data.phone_number },
         ],
       },
     });
-
-    if (existingCustomer) {
-      throw new Error(
-        existingCustomer.email === data.email
-          ? "Customer with this email already exists"
-          : "Customer with this phone number already exists"
-      );
-    }
 
     const newCustomer = await getdb.customer.create({
       data: {

@@ -136,43 +136,43 @@ const verifyOtp = async (email, otp, ip_id = null) => {
       (s) => s.session_status === "active"
     );
 
-    if (activeSession) {
-      await getdb.userSession.update({
-        where: { id: activeSession.id },
-        data: {
-          session_status: "terminated",
-          logout_time: timestamp,
-          updated_at: timestamp,
-        },
-      });
+    // if (activeSession) {
+    //   await getdb.userSession.update({
+    //     where: { id: activeSession.id },
+    //     data: {
+    //       session_status: "terminated",
+    //       logout_time: timestamp,
+    //       updated_at: timestamp,
+    //     },
+    //   });
 
-      // const deletedDeals = await getdb.deal.updateMany({
-      //   where: {
-      //     created_by: user.id,
-      //     deleted_at: null,
-      //   },
-      //   data: {
-      //     deleted_at: timestamp,
-      //   },
-      // });
+    //   // const deletedDeals = await getdb.deal.updateMany({
+    //   //   where: {
+    //   //     created_by: user.id,
+    //   //     deleted_at: null,
+    //   //   },
+    //   //   data: {
+    //   //     deleted_at: timestamp,
+    //   //   },
+    //   // });
 
-      await getdb.user.update({
-        where: { id: user.id },
-        data: { force_logout: true, updated_at: timestamp },
-      });
+    //   await getdb.user.update({
+    //     where: { id: user.id },
+    //     data: { force_logout: true, updated_at: timestamp },
+    //   });
 
-      logger.warn(
-        `User ${email} had an active session — force logout triggered.`
-      );
-    }
+    //   logger.warn(
+    //     `User ${email} had an active session — force logout triggered.`
+    //   );
+    // }
 
-    if (user.force_logout) {
-      await getdb.user.update({
-        where: { id: user.id },
-        data: { force_logout: false, updated_at: timestamp },
-      });
-      logger.info(`Force logout cleared for user: ${email}`);
-    }
+    // if (user.force_logout) {
+    //   await getdb.user.update({
+    //     where: { id: user.id },
+    //     data: { force_logout: false, updated_at: timestamp },
+    //   });
+    //   logger.info(`Force logout cleared for user: ${email}`);
+    // }
 
     const token = jwt.sign(
       {

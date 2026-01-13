@@ -141,7 +141,7 @@ model Customer {
   name         String
   phone_number String     @unique
   deal_type    DealType
-  email        String?     @unique
+  email        String?
   is_active    Boolean
   created_by   Int
   created_at   DateTime

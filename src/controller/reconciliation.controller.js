@@ -113,13 +113,6 @@ const updateReconciliation = async (req, res) => {
       });
     }
 
-    if ((hasOpening && openingEntries.length === 0) ||
-        (hasClosing && closingEntries.length === 0)) {
-      return res.status(400).json({
-        message: "Opening or closing entries cannot be empty",
-      });
-    }
-
     const updatedReconciliation =
       await reconciliationService.updateReconciliation(
         id,

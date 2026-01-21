@@ -508,6 +508,8 @@ const getDealById = async (id) => {
               paidItems: { include: { currency: true } },
               createdBy: { select: { id: true, full_name: true, email: true } },
               actionBy: { select: { id: true, full_name: true, email: true } },
+              buyCurrency: { select: { id: true, code: true, name: true } },
+              sellCurrency: { select: { id: true, code: true, name: true } },
             },
         });
 

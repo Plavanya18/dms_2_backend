@@ -170,6 +170,7 @@ model Deal {
   created_by       Int
   action_by        Int?
   action_at        DateTime?
+  completed_at     DateTime?
   created_at       DateTime
   updated_at       DateTime
   deleted_at       DateTime?
@@ -195,6 +196,7 @@ model DealReceived {
   price       String
   quantity    String
   total       String
+  created_at  DateTime @default(now())
 
   deal     Deal     @relation(fields: [deal_id], references: [id])
   currency Currency @relation(fields: [currency_id], references: [id])
@@ -209,6 +211,7 @@ model DealPaid {
   price       String
   quantity    String
   total       String
+  created_at  DateTime @default(now())
 
   deal     Deal     @relation(fields: [deal_id], references: [id])
   currency Currency @relation(fields: [currency_id], references: [id])

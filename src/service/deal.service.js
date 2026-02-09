@@ -83,6 +83,7 @@ const createDeal = async (data, userId) => {
         amount_to_be_paid: data.amount_to_be_paid,
         remarks: data.remarks || null,
         status: data.status,
+        completed_at: data.status === "Completed" ? new Date() : null,
         created_by: userId,
         created_at: new Date(),
         updated_at: new Date(),
@@ -148,28 +149,28 @@ const getAllDeals = async (
     if (currency) {
       where.OR = where.OR
         ? [
-            ...where.OR,
-            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
-            { paidItems: { some: { currency: { code: { contains: currency } } } } },
-          ]
+          ...where.OR,
+          { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+          { paidItems: { some: { currency: { code: { contains: currency } } } } },
+        ]
         : [
-            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
-            { paidItems: { some: { currency: { code: { contains: currency } } } } },
-          ];
+          { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+          { paidItems: { some: { currency: { code: { contains: currency } } } } },
+        ];
     }
 
     const now = new Date();
     let fromDate = null;
 
-  if (dateFilter === "today") {
-    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    if (dateFilter === "today") {
+      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-    where.created_at = {
-      gte: startToday,
-      lte: endToday,
-    };
-  }
+      where.created_at = {
+        gte: startToday,
+        lte: endToday,
+      };
+    }
 
     if (dateFilter === "last7") {
       fromDate = new Date(now.setDate(now.getDate() - 7));
@@ -193,7 +194,7 @@ const getAllDeals = async (
     const deals = await getdb.deal.findMany({
       where,
       include: {
-        customer:{ select:{ id: true, name: true, phone_number: true, email: true} },
+        customer: { select: { id: true, name: true, phone_number: true, email: true } },
         buyCurrency: { select: { id: true, code: true, name: true } },
         sellCurrency: { select: { id: true, code: true, name: true } },
         receivedItems: {
@@ -499,46 +500,47 @@ const geneexchange_ratePDF = async (deals) => {
 };
 
 const getDealById = async (id) => {
-    try {
-        return await getdb.deal.findUnique({
-            where: { id: Number(id) },
-            include: {
-              customer:{ select:{ id: true, name: true, phone_number: true, email: true} },
-              receivedItems: { include: { currency: true } },
-              paidItems: { include: { currency: true } },
-              createdBy: { select: { id: true, full_name: true, email: true } },
-              actionBy: { select: { id: true, full_name: true, email: true } },
-              buyCurrency: { select: { id: true, code: true, name: true } },
-              sellCurrency: { select: { id: true, code: true, name: true } },
-            },
-        });
+  try {
+    return await getdb.deal.findUnique({
+      where: { id: Number(id) },
+      include: {
+        customer: { select: { id: true, name: true, phone_number: true, email: true } },
+        receivedItems: { include: { currency: true } },
+        paidItems: { include: { currency: true } },
+        createdBy: { select: { id: true, full_name: true, email: true } },
+        actionBy: { select: { id: true, full_name: true, email: true } },
+        buyCurrency: { select: { id: true, code: true, name: true } },
+        sellCurrency: { select: { id: true, code: true, name: true } },
+      },
+    });
 
-    } catch (error) {
-        logger.error(`Failed to fetch deal with ID ${id}:`, error);
-        throw error;
-    }
+  } catch (error) {
+    logger.error(`Failed to fetch deal with ID ${id}:`, error);
+    throw error;
+  }
 };
 
 const updateDealStatus = async (id, status, reason = null, userId) => {
-    try {
-        const updated = await getdb.deal.update({
-            where: { id: Number(id) },
-            data: {
-                status: status,
-                action_by: userId,
-                action_reason: reason,
-                action_at: new Date(),
-                updated_at: new Date(),
-            },
-        });
+  try {
+    const updated = await getdb.deal.update({
+      where: { id: Number(id) },
+      data: {
+        status: status,
+        action_by: userId,
+        action_reason: reason,
+        action_at: new Date(),
+        completed_at: status === "Completed" ? new Date() : undefined,
+        updated_at: new Date(),
+      },
+    });
 
-        logger.info(`Deal status updated: ${updated.id} ${updated.deal_number}`);
-        return updated;
+    logger.info(`Deal status updated: ${updated.id} ${updated.deal_number}`);
+    return updated;
 
-    } catch (error) {
-        logger.error(`Failed to update deal status for ID ${id}:`, error);
-        throw error;
-    }
+  } catch (error) {
+    logger.error(`Failed to update deal status for ID ${id}:`, error);
+    throw error;
+  }
 };
 
 const updateDeal = async (id, data, userId) => {
@@ -560,30 +562,61 @@ const updateDeal = async (id, data, userId) => {
       status: data.status,
       action_by: userId,
       action_at: new Date(),
+      completed_at: data.status === "Completed" ? new Date() : undefined,
       updated_at: new Date(),
     };
 
     if (Array.isArray(data.receivedItems)) {
+      const incomingIds = data.receivedItems.filter(item => item.id).map(item => Number(item.id));
+      const itemsToUpdate = data.receivedItems.filter(item => item.id);
+      const itemsToCreate = data.receivedItems.filter(item => !item.id);
+
       updateData.receivedItems = {
-        deleteMany: {},
-        create: data.receivedItems.map(item => ({
-          price: item.price,
-          quantity: item.quantity,
-          total: item.total,
-          currency_id: item.currency_id,
+        deleteMany: {
+          id: { notIn: incomingIds }
+        },
+        update: itemsToUpdate.map(item => ({
+          where: { id: Number(item.id) },
+          data: {
+            price: String(item.price),
+            quantity: String(item.quantity),
+            total: String(item.total),
+            currency_id: Number(item.currency_id),
+          }
         })),
+        create: itemsToCreate.map(item => ({
+          price: String(item.price),
+          quantity: String(item.quantity),
+          total: String(item.total),
+          currency_id: Number(item.currency_id),
+        }))
       };
     }
 
     if (Array.isArray(data.paidItems)) {
+      const incomingIds = data.paidItems.filter(item => item.id).map(item => Number(item.id));
+      const itemsToUpdate = data.paidItems.filter(item => item.id);
+      const itemsToCreate = data.paidItems.filter(item => !item.id);
+
       updateData.paidItems = {
-        deleteMany: {},
-        create: data.paidItems.map(item => ({
-          price: item.price,
-          quantity: item.quantity,
-          total: item.total,
-          currency_id: item.currency_id,
+        deleteMany: {
+          id: { notIn: incomingIds }
+        },
+        update: itemsToUpdate.map(item => ({
+          where: { id: Number(item.id) },
+          data: {
+            price: String(item.price),
+            quantity: String(item.quantity),
+            total: String(item.total),
+            currency_id: Number(item.currency_id),
+          }
         })),
+        create: itemsToCreate.map(item => ({
+          price: String(item.price),
+          quantity: String(item.quantity),
+          total: String(item.total),
+          currency_id: Number(item.currency_id),
+        }))
       };
     }
 
@@ -606,10 +639,10 @@ const updateDeal = async (id, data, userId) => {
 };
 
 module.exports = {
-    createDeal,
-    getAllDeals,
-    getDealById,
-    updateDealStatus,
-    updateDeal,
+  createDeal,
+  getAllDeals,
+  getDealById,
+  updateDealStatus,
+  updateDeal,
 };
 

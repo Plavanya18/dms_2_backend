@@ -48,10 +48,7 @@ const listDealController = async (req, res) => {
     );
 
     if (result.filePath) {
-      return res.status(200).json({
-        message: "File generated successfully",
-        downloadUrl: `/download-temp-file?path=${encodeURIComponent(result.filePath)}`
-      });
+      return res.download(result.filePath);
     }
 
     return res.status(200).json({

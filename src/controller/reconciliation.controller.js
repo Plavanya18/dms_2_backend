@@ -48,10 +48,7 @@ const getAllReconciliations = async (req, res) => {
     });
 
     if (result.filePath) {
-      return res.status(200).json({
-        message: "File generated successfully",
-        downloadUrl: `/download-temp-file?path=${encodeURIComponent(result.filePath)}`,
-      });
+      return res.download(result.filePath);
     }
 
     return res.json({
@@ -88,13 +85,13 @@ const fetchReconciliationAlerts = async (req, res) => {
 };
 
 const getReconciliationById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const rec = await reconciliationService.getReconciliationById(id);
-        return res.json({ message: "Reconciliation fetched successfully", data: rec });
-    } catch (err) {
-        return res.status(404).json({ message: err.message });
-    }
+  try {
+    const { id } = req.params;
+    const rec = await reconciliationService.getReconciliationById(id);
+    return res.json({ message: "Reconciliation fetched successfully", data: rec });
+  } catch (err) {
+    return res.status(404).json({ message: err.message });
+  }
 };
 
 const updateReconciliation = async (req, res) => {
@@ -116,7 +113,7 @@ const updateReconciliation = async (req, res) => {
     const updatedReconciliation =
       await reconciliationService.updateReconciliation(
         id,
-        { openingEntries, closingEntries, notes , status},
+        { openingEntries, closingEntries, notes, status },
         userId
       );
 
@@ -140,9 +137,9 @@ const updateReconciliation = async (req, res) => {
 
 
 module.exports = {
-    createReconciliation,
-    getAllReconciliations,
-    fetchReconciliationAlerts,
-    getReconciliationById,
-    updateReconciliation,
+  createReconciliation,
+  getAllReconciliations,
+  fetchReconciliationAlerts,
+  getReconciliationById,
+  updateReconciliation,
 };

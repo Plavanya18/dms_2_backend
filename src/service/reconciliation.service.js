@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
+const os = require("os");
 
 const createReconciliation = async (data, userId) => {
   try {
@@ -237,8 +238,15 @@ const generateExcel = async (recs) => {
     });
   });
 
-  const folder = path.join(__dirname, "../downloads");
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+  const folder = path.join(os.homedir(), "Desktop");
+  if (!fs.existsSync(folder)) {
+    // Fallback if Desktop doesn't exist for some reason
+    const backupFolder = path.join(__dirname, "../downloads");
+    if (!fs.existsSync(backupFolder)) fs.mkdirSync(backupFolder);
+    const filePath = path.join(backupFolder, `reconciliations_${Date.now()}.xlsx`);
+    await workbook.xlsx.writeFile(filePath);
+    return filePath;
+  }
 
   const filePath = path.join(folder, `reconciliations_${Date.now()}.xlsx`);
   await workbook.xlsx.writeFile(filePath);
@@ -247,9 +255,11 @@ const generateExcel = async (recs) => {
 };
 
 const generatePDF = async (recs) => {
-  const folder = path.join(__dirname, "../downloads");
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
-
+  let folder = path.join(os.homedir(), "Desktop");
+  if (!fs.existsSync(folder)) {
+    folder = path.join(__dirname, "../downloads");
+    if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+  }
   const filePath = path.join(folder, `reconciliations_${Date.now()}.pdf`);
   const doc = new PDFDocument({ margin: 30, size: "A4" });
   const writeStream = fs.createWriteStream(filePath);

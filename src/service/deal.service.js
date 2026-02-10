@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
+const os = require("os");
 
 const createDeal = async (data, userId) => {
   try {
@@ -150,14 +151,14 @@ const getAllDeals = async (
     if (currency) {
       where.OR = where.OR
         ? [
-            ...where.OR,
-            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
-            { paidItems: { some: { currency: { code: { contains: currency } } } } },
-          ]
+          ...where.OR,
+          { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+          { paidItems: { some: { currency: { code: { contains: currency } } } } },
+        ]
         : [
-            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
-            { paidItems: { some: { currency: { code: { contains: currency } } } } },
-          ];
+          { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+          { paidItems: { some: { currency: { code: { contains: currency } } } } },
+        ];
     }
 
     // Date filter
@@ -346,9 +347,14 @@ const geneexchange_rateExcel = async (deals) => {
     });
   });
 
-  const folder = path.join(__dirname, "../downloads");
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
-
+  const folder = path.join(os.homedir(), "Desktop");
+  if (!fs.existsSync(folder)) {
+    const backupFolder = path.join(__dirname, "../downloads");
+    if (!fs.existsSync(backupFolder)) fs.mkdirSync(backupFolder);
+    const filePath = path.join(backupFolder, `deals_${Date.now()}.xlsx`);
+    await workbook.xlsx.writeFile(filePath);
+    return filePath;
+  }
   const filePath = path.join(folder, `deals_${Date.now()}.xlsx`);
   await workbook.xlsx.writeFile(filePath);
 
@@ -356,9 +362,11 @@ const geneexchange_rateExcel = async (deals) => {
 };
 
 const geneexchange_ratePDF = async (deals) => {
-  const folder = path.join(__dirname, "../downloads");
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
-
+  let folder = path.join(os.homedir(), "Desktop");
+  if (!fs.existsSync(folder)) {
+    folder = path.join(__dirname, "../downloads");
+    if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+  }
   const filePath = path.join(folder, `deals_${Date.now()}.pdf`);
   const doc = new PDFDocument({ margin: 40 });
 

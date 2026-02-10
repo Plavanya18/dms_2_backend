@@ -259,15 +259,10 @@ const getAllDeals = async (
     }
 
     const dealsWithTotals = deals.map((deal) => {
-      const sellAmount = (deal.paidItems || []).reduce(
-        (acc, item) => acc + Number(item.total || 0),
-        0
-      );
+      const isBuy = deal.deal_type === "buy";
+      const buyAmount = isBuy ? Number(deal.amount) : Number(deal.amount_to_be_paid);
+      const sellAmount = isBuy ? Number(deal.amount_to_be_paid) : Number(deal.amount);
 
-      const buyAmount = (deal.receivedItems || []).reduce(
-        (acc, item) => acc + Number(item.total || 0),
-        0
-      );
       return {
         ...deal,
         buyAmount,
@@ -294,18 +289,18 @@ const getAllDeals = async (
       let sellAmount = 0;
 
       for (const deal of dealsArray) {
-        const converted = await convertToTZS(deal.amount_to_be_paid, deal.sell_currency_id);
-        if (deal.deal_type === "buy") {
-          buyAmount += converted;
-        } else {
-          sellAmount += converted;
+        const tzsVal = Number(deal.amount_to_be_paid || 0);
+        if (deal.deal_type === "sell") {
+          buyAmount += tzsVal;
+        } else if (deal.deal_type === "buy") {
+          sellAmount += tzsVal;
         }
       }
 
       return {
         buyAmount: Number(buyAmount.toFixed(2)),
         sellAmount: Number(sellAmount.toFixed(2)),
-        profit: Number((buyAmount - sellAmount).toFixed(2)),
+        profit: Number((sellAmount - buyAmount).toFixed(2)),
       };
     };
 
@@ -334,24 +329,13 @@ const getAllDeals = async (
     const todayStats = await calculateTotals(todayDeals);
     const yesterdayStats = await calculateTotals(yesterdayDeals);
 
-    const percentageChange = (todayVal, yestVal) => {
-      if (yestVal === 0) return todayVal > 0 ? 100 : 0;
-      return Number((((todayVal - yestVal) / yestVal) * 100).toFixed(2));
-    };
-
     const stats = {
       today: {
         dealCount: todayDeals.length,
         buyAmount: todayStats.buyAmount,
         sellAmount: todayStats.sellAmount,
         profit: todayStats.profit,
-      },
-      yesterdayPercentage: {
-        dealCount: percentageChange(todayDeals.length, yesterdayDeals.length),
-        buyAmount: percentageChange(todayStats.buyAmount, yesterdayStats.buyAmount),
-        sellAmount: percentageChange(todayStats.sellAmount, yesterdayStats.sellAmount),
-        profit: percentageChange(todayStats.profit, yesterdayStats.profit),
-      },
+      }
     };
 
     if (format === "pdf") {

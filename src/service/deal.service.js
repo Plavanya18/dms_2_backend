@@ -135,6 +135,7 @@ const getAllDeals = async (
     const skip = (page - 1) * limit;
     const where = {};
 
+    // Search
     if (search) {
       where.OR = [
         { deal_number: { contains: search } },
@@ -142,67 +143,51 @@ const getAllDeals = async (
       ];
     }
 
-    if (status) {
-      where.status = status;
-    }
+    // Status
+    if (status) where.status = status;
 
+    // Currency
     if (currency) {
       where.OR = where.OR
         ? [
-          ...where.OR,
-          { receivedItems: { some: { currency: { code: { contains: currency } } } } },
-          { paidItems: { some: { currency: { code: { contains: currency } } } } },
-        ]
+            ...where.OR,
+            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+            { paidItems: { some: { currency: { code: { contains: currency } } } } },
+          ]
         : [
-          { receivedItems: { some: { currency: { code: { contains: currency } } } } },
-          { paidItems: { some: { currency: { code: { contains: currency } } } } },
-        ];
+            { receivedItems: { some: { currency: { code: { contains: currency } } } } },
+            { paidItems: { some: { currency: { code: { contains: currency } } } } },
+          ];
     }
 
+    // Date filter
     const now = new Date();
     let fromDate = null;
-
     if (dateFilter === "today") {
       const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-      where.created_at = {
-        gte: startToday,
-        lte: endToday,
-      };
+      where.created_at = { gte: startToday, lte: endToday };
     }
-
-    if (dateFilter === "last7") {
-      fromDate = new Date(now.setDate(now.getDate() - 7));
-    } else if (dateFilter === "last30") {
-      fromDate = new Date(now.setDate(now.getDate() - 30));
-    } else if (dateFilter === "last90") {
-      fromDate = new Date(now.setDate(now.getDate() - 90));
-    } else if (dateFilter === "custom" && startDate && endDate) {
-      where.created_at = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
-      };
+    if (dateFilter === "last7") fromDate = new Date(now.setDate(now.getDate() - 7));
+    if (dateFilter === "last30") fromDate = new Date(now.setDate(now.getDate() - 30));
+    if (dateFilter === "last90") fromDate = new Date(now.setDate(now.getDate() - 90));
+    if (dateFilter === "custom" && startDate && endDate) {
+      where.created_at = { gte: new Date(startDate), lte: new Date(endDate) };
     }
+    if (fromDate && dateFilter !== "custom") where.created_at = { gte: fromDate };
 
-    if (fromDate && dateFilter !== "custom") {
-      where.created_at = { gte: fromDate };
-    }
-
+    // Total count
     const total = await getdb.deal.count({ where });
 
+    // Fetch deals
     const deals = await getdb.deal.findMany({
       where,
       include: {
         customer: { select: { id: true, name: true, phone_number: true, email: true } },
         buyCurrency: { select: { id: true, code: true, name: true } },
         sellCurrency: { select: { id: true, code: true, name: true } },
-        receivedItems: {
-          include: { currency: { select: { id: true, code: true, name: true } } },
-        },
-        paidItems: {
-          include: { currency: { select: { id: true, code: true, name: true } } },
-        },
+        receivedItems: { include: { currency: true } },
+        paidItems: { include: { currency: true } },
         createdBy: { select: { id: true, full_name: true, email: true } },
         actionBy: { select: { id: true, full_name: true, email: true } },
       },
@@ -211,6 +196,7 @@ const getAllDeals = async (
       orderBy: { [orderByField]: orderDirection },
     });
 
+    // Deactivate inactive customers (older than 15 days)
     const FIFTEEN_DAYS = 15 * 24 * 60 * 60 * 1000;
     const customerIds = [...new Set(deals.map(d => d.customer_id))];
 
@@ -220,129 +206,75 @@ const getAllDeals = async (
         orderBy: { created_at: "desc" },
         select: { created_at: true },
       });
-
       if (!lastDeal) continue;
-
       const diff = new Date() - new Date(lastDeal.created_at);
-
       if (diff > FIFTEEN_DAYS) {
         await getdb.customer.update({
           where: { id: customerId },
-          data: {
-            is_active: false,
-            updated_at: new Date(),
-          },
+          data: { is_active: false, updated_at: new Date() },
         });
       }
     }
 
+    // Customers with no deals older than 15 days
     const customersWithoutDeals = await getdb.customer.findMany({
-      where: {
-        deals: { none: {} },
-        is_active: true,
-      },
+      where: { deals: { none: {} }, is_active: true },
       select: { id: true, created_at: true },
     });
 
     for (const customer of customersWithoutDeals) {
       const diff = new Date() - new Date(customer.created_at);
-
       if (diff > FIFTEEN_DAYS) {
         await getdb.customer.update({
           where: { id: customer.id },
-          data: {
-            is_active: false,
-            updated_at: new Date(),
-          },
+          data: { is_active: false, updated_at: new Date() },
         });
       }
     }
 
-    const dealsWithTotals = deals.map((deal) => {
-      const isBuy = deal.deal_type === "buy";
-      const buyAmount = isBuy ? Number(deal.amount) : Number(deal.amount_to_be_paid);
-      const sellAmount = isBuy ? Number(deal.amount_to_be_paid) : Number(deal.amount);
-
+    // Map deals with amount_to_be_paid only
+    const dealsWithTotals = deals.map(deal => {
       return {
         ...deal,
-        buyAmount,
-        sellAmount,
+        amount_to_be_paid: Number(deal.amount_to_be_paid || 0),
       };
     });
 
-    const getLatestRate = async (currencyId) => {
-      const pair = await getdb.currencyPairRate.findFirst({
-        where: { quote_currency_id: currencyId },
-        orderBy: { effective_at: "desc" },
-        select: { rate: true },
-      });
-      return pair?.rate ? Number(pair.rate) : 1;
-    };
-
-    const convertToTZS = async (amount, currencyId) => {
-      const rate = await getLatestRate(currencyId);
-      return Number(amount) * rate;
-    };
-
-    const calculateTotals = async (dealsArray) => {
+    // Function to calculate totals
+    const calculateTotals = (dealsArray) => {
       let buyAmount = 0;
       let sellAmount = 0;
 
       for (const deal of dealsArray) {
-        const tzsVal = Number(deal.amount_to_be_paid || 0);
-        if (deal.deal_type === "sell") {
-          buyAmount += tzsVal;
-        } else if (deal.deal_type === "buy") {
-          sellAmount += tzsVal;
-        }
+        if (deal.deal_type === "buy") sellAmount += Number(deal.amount_to_be_paid || 0);
+        if (deal.deal_type === "sell") buyAmount += Number(deal.amount_to_be_paid || 0);
       }
 
       return {
-        buyAmount: Number(buyAmount.toFixed(2)),
-        sellAmount: Number(sellAmount.toFixed(2)),
-        profit: Number((sellAmount - buyAmount).toFixed(2)),
+        buyAmount,
+        sellAmount,
+        profit: buyAmount - sellAmount,
       };
     };
 
-    const endToday = new Date();
-    endToday.setHours(23, 59, 59, 999);
+    const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
+    const endToday = new Date(); endToday.setHours(23, 59, 59, 999);
+    const startYesterday = new Date(startToday); startYesterday.setDate(startYesterday.getDate() - 1);
+    const endYesterday = new Date(startToday); endYesterday.setMilliseconds(-1);
 
-    const startToday = new Date();
-    startToday.setHours(0, 0, 0, 0);
-
-    const endYesterday = new Date(startToday);
-    endYesterday.setHours(23, 59, 59, 999);
-
-    const startYesterday = new Date(startToday);
-    startYesterday.setDate(startYesterday.getDate() - 1);
-
-    const todayDeals = await getdb.deal.findMany({
-      where: { created_at: { gte: startToday, lte: endToday } },
-      include: { receivedItems: true, paidItems: true },
-    });
-
-    const yesterdayDeals = await getdb.deal.findMany({
-      where: { created_at: { gte: startYesterday, lte: endYesterday } },
-      include: { receivedItems: true, paidItems: true },
-    });
-
-    const todayStats = await calculateTotals(todayDeals);
-    const yesterdayStats = await calculateTotals(yesterdayDeals);
+    const todayDeals = await getdb.deal.findMany({ where: { created_at: { gte: startToday, lte: endToday } } });
+    const yesterdayDeals = await getdb.deal.findMany({ where: { created_at: { gte: startYesterday, lte: endYesterday } } });
 
     const stats = {
-      today: {
-        dealCount: todayDeals.length,
-        buyAmount: todayStats.buyAmount,
-        sellAmount: todayStats.sellAmount,
-        profit: todayStats.profit,
-      }
+      today: calculateTotals(todayDeals),
+      yesterday: calculateTotals(yesterdayDeals),
+      total: calculateTotals(deals) // overall totals
     };
 
     if (format === "pdf") {
       const filePath = await geneexchange_ratePDF(dealsWithTotals);
       return { filePath, stats };
     }
-
     if (format === "excel") {
       const filePath = await geneexchange_rateExcel(dealsWithTotals);
       return { filePath, stats };
@@ -353,6 +285,7 @@ const getAllDeals = async (
       pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
       stats,
     };
+
   } catch (error) {
     logger.error("Failed to fetch deals:", error);
     throw error;

@@ -12,34 +12,10 @@ const createReconciliation = async (data, userId) => {
     }
 
     const now = new Date();
-
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    const dealsToday = await getdb.deal.findMany({
-      where: {
-        created_at: { gte: startOfDay, lte: endOfDay },
-      },
-      select: { id: true },
-    });
-
-    const tanzaniaCurrency = await getdb.currency.findFirst({
-      where: { code: "TZS" },
-      select: { id: true },
-    });
-
-    if (!tanzaniaCurrency) {
-      throw new Error("Base currency TZS not found in currency table.");
-    }
-
-    const tanzaniaCurrencyId = tanzaniaCurrency.id;
-
     const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
     const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
-    
-    const reconciliationStatus = hasOpening && hasClosing
-    ? data?.status ?? "In_Progress"
-    : "In_Progress";
+
+    const reconciliationStatus = hasClosing ? (data.status || "In_Progress") : "In_Progress";
 
     const newReconciliation = await getdb.reconciliation.create({
       data: {
@@ -48,103 +24,38 @@ const createReconciliation = async (data, userId) => {
         created_at: now,
         updated_at: now,
         openingEntries: {
-          create: await Promise.all(
-            data.openingEntries.map(async (entry) => {
-              const existingPair = await getdb.currencyPairRate.findFirst({
-                where: {
-                  base_currency_id: tanzaniaCurrencyId,
-                  quote_currency_id: entry.currency_id,
-                },
-              });
-
-              if (existingPair) {
-                await getdb.currencyPairRate.update({
-                  where: { id: existingPair.id },
-                  data: {
-                    rate: entry.exchange_rate,
-                    effective_at: new Date(),
-                    created_by: userId,
-                  },
-                });
-              } else {
-                await getdb.currencyPairRate.create({
-                  data: {
-                    base_currency_id: tanzaniaCurrencyId,
-                    quote_currency_id: entry.currency_id,
-                    rate: entry.exchange_rate,
-                    effective_at: new Date(),
-                    created_by: userId,
-                  },
-                });
-              }
-
-              return {
-                denomination: entry.denomination,
-                quantity: entry.quantity,
-                amount: entry.amount,
-                exchange_rate: entry.exchange_rate,
-                currency_id: entry.currency_id,
-              };
-            })
-          ),
+          create: data.openingEntries.map((entry) => ({
+            denomination: entry.denomination || entry.amount || 0,
+            quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
+            amount: entry.amount,
+            exchange_rate: entry.exchange_rate || 1.0,
+            currency_id: entry.currency_id,
+          })),
         },
-
-        ...(Array.isArray(data.closingEntries) && data.closingEntries.length > 0 && {
+        ...(hasClosing && {
           closingEntries: {
-            create: await Promise.all(
-              data.closingEntries.map(async (entry) => {
-                const existingPair = await getdb.currencyPairRate.findFirst({
-                  where: {
-                    base_currency_id: tanzaniaCurrencyId,
-                    quote_currency_id: entry.currency_id,
-                  },
-                });
-
-                if (existingPair) {
-                  await getdb.currencyPairRate.update({
-                    where: { id: existingPair.id },
-                    data: {
-                      rate: entry.exchange_rate,
-                      effective_at: new Date(),
-                      created_by: userId,
-                    },
-                  });
-                } else {
-                  await getdb.currencyPairRate.create({
-                    data: {
-                      base_currency_id: tanzaniaCurrencyId,
-                      quote_currency_id: entry.currency_id,
-                      rate: entry.exchange_rate,
-                      effective_at: new Date(),
-                      created_by: userId,
-                    },
-                  });
-                }
-
-                return {
-                  denomination: entry.denomination,
-                  quantity: entry.quantity,
-                  amount: entry.amount,
-                  exchange_rate: entry.exchange_rate,
-                  currency_id: entry.currency_id,
-                };
-              })
-            ),
+            create: data.closingEntries.map((entry) => ({
+              denomination: entry.denomination || entry.amount || 0,
+              quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
+              amount: entry.amount,
+              exchange_rate: entry.exchange_rate || 1.0,
+              currency_id: entry.currency_id,
+            })),
           },
         }),
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
-          notes: { create: data.notes.map((note) => ({ note })) },
+          notes: {
+            create: data.notes.map((note) => {
+              const noteText = typeof note === 'string' ? note : note.note || note.text;
+              return { note: noteText };
+            }),
+          },
         }),
-        deals: {
-          create: dealsToday.map((deal) => ({ deal_id: deal.id })),
-        },
       },
-
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         notes: true,
-        deals: true,
       },
     });
 
@@ -158,130 +69,130 @@ const createReconciliation = async (data, userId) => {
 };
 
 const getAllReconciliations = async ({
-    page = 1,
-    limit = 10,
-    dateFilter,
-    startDate,
-    endDate,
-    status,
-    format,
+  page = 1,
+  limit = 10,
+  dateFilter,
+  startDate,
+  endDate,
+  status,
+  format,
 }) => {
-    try {
-        const skip = (page - 1) * limit;
-        const where = {};
+  try {
+    const skip = (page - 1) * limit;
+    const where = {};
 
-        const now = new Date();
-        let start, end;
+    const now = new Date();
+    let start, end;
 
-        if (dateFilter) {
-          switch (dateFilter) {
-              case "today":
-                  start = new Date(now.setHours(0, 0, 0, 0));
-                  end = new Date(now.setHours(23, 59, 59, 999));
-                  break;
+    if (dateFilter) {
+      switch (dateFilter) {
+        case "today":
+          start = new Date(now.setHours(0, 0, 0, 0));
+          end = new Date(now.setHours(23, 59, 59, 999));
+          break;
 
-              case "yesterday":
-                  const yesterday = new Date();
-                  yesterday.setDate(now.getDate() - 1);
-                  start = new Date(yesterday.setHours(0, 0, 0, 0));
-                  end = new Date(yesterday.setHours(23, 59, 59, 999));
-                  break;
+        case "yesterday":
+          const yesterday = new Date();
+          yesterday.setDate(now.getDate() - 1);
+          start = new Date(yesterday.setHours(0, 0, 0, 0));
+          end = new Date(yesterday.setHours(23, 59, 59, 999));
+          break;
 
-              case "last7":
-                  start = new Date(now);
-                  start.setDate(now.getDate() - 7);
-                  start.setHours(0, 0, 0, 0);
-                  end = new Date(now.setHours(23, 59, 59, 999));
-                  break;
+        case "last7":
+          start = new Date(now);
+          start.setDate(now.getDate() - 7);
+          start.setHours(0, 0, 0, 0);
+          end = new Date(now.setHours(23, 59, 59, 999));
+          break;
 
-              case "thisMonth":
-                  start = new Date(now.getFullYear(), now.getMonth(), 1);
-                  start.setHours(0, 0, 0, 0);
-                  end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                  end.setHours(23, 59, 59, 999);
-                  break;
+        case "thisMonth":
+          start = new Date(now.getFullYear(), now.getMonth(), 1);
+          start.setHours(0, 0, 0, 0);
+          end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          end.setHours(23, 59, 59, 999);
+          break;
 
-              case "custom":
-                  if (startDate && endDate) {
-                      start = new Date(startDate);
-                      start.setHours(0, 0, 0, 0);
-                      end = new Date(endDate);
-                      end.setHours(23, 59, 59, 999);
-                  } else {
-                      throw new Error("For custom dateFilter, startDate and endDate are required");
-                  }
-                  break;
-
-              default:
-                  throw new Error("Invalid dateFilter value");
+        case "custom":
+          if (startDate && endDate) {
+            start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+          } else {
+            throw new Error("For custom dateFilter, startDate and endDate are required");
           }
-        }
+          break;
 
-        if (status) {
-            where.status = status;
-        }
-
-        where.created_at = { gte: start, lte: end };
-
-        const total = await getdb.reconciliation.count({ where });
-
-        const reconciliations = await getdb.reconciliation.findMany({
-            where,
-            include: {
-                openingEntries: {
-                    include: { currency: { select: { id: true, code: true, name: true } } },
-                },
-                closingEntries: {
-                    include: { currency: { select: { id: true, code: true, name: true } } },
-                },
-                notes: true,
-                deals: {include: { deal: { select: {id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
-                createdBy: { select: { id: true, full_name: true, email: true } },
-            },
-            orderBy: { created_at: "desc" },
-            skip,
-            take: limit,
-        });
-
-        const enhancedData = reconciliations.map((rec) => {
-            const opening_total = rec.openingEntries.reduce(
-                (sum, entry) => sum + Number(entry.amount || 0),
-                0
-            );
-
-            const closing_total = rec.closingEntries.reduce(
-                (sum, entry) => sum + Number(entry.amount || 0),
-                0
-            );
-
-            const total_transactions = rec.deals.length;
-
-            const difference = opening_total - closing_total;
-
-            return {
-                ...rec,
-                opening_total,
-                closing_total,
-                total_transactions,
-                difference,
-            };
-        });
-
-        if (format === "excel") {
-        const filePath = await generateExcel(reconciliations);
-        return { filePath };
-        }
-
-        if (format === "pdf") {
-        const filePath = await generatePDF(reconciliations);
-        return { filePath };
-        }
-
-        return { data: enhancedData, total };
-    } catch (error) {
-        logger.error("Failed to fetch reconciliations:", error);
-        throw error;
+        default:
+          throw new Error("Invalid dateFilter value");
+      }
     }
+
+    if (status) {
+      where.status = status;
+    }
+
+    where.created_at = { gte: start, lte: end };
+
+    const total = await getdb.reconciliation.count({ where });
+
+    const reconciliations = await getdb.reconciliation.findMany({
+      where,
+      include: {
+        openingEntries: {
+          include: { currency: { select: { id: true, code: true, name: true } } },
+        },
+        closingEntries: {
+          include: { currency: { select: { id: true, code: true, name: true } } },
+        },
+        notes: true,
+        deals: { include: { deal: { select: { id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
+        createdBy: { select: { id: true, full_name: true, email: true } },
+      },
+      orderBy: { created_at: "desc" },
+      skip,
+      take: limit,
+    });
+
+    const enhancedData = reconciliations.map((rec) => {
+      const opening_total = rec.openingEntries.reduce(
+        (sum, entry) => sum + Number(entry.amount || 0),
+        0
+      );
+
+      const closing_total = rec.closingEntries.reduce(
+        (sum, entry) => sum + Number(entry.amount || 0),
+        0
+      );
+
+      const total_transactions = rec.deals.length;
+
+      const difference = opening_total - closing_total;
+
+      return {
+        ...rec,
+        opening_total,
+        closing_total,
+        total_transactions,
+        difference,
+      };
+    });
+
+    if (format === "excel") {
+      const filePath = await generateExcel(reconciliations);
+      return { filePath };
+    }
+
+    if (format === "pdf") {
+      const filePath = await generatePDF(reconciliations);
+      return { filePath };
+    }
+
+    return { data: enhancedData, total };
+  } catch (error) {
+    logger.error("Failed to fetch reconciliations:", error);
+    throw error;
+  }
 };
 
 const generateExcel = async (recs) => {
@@ -456,23 +367,23 @@ const getReconciliationAlerts = async () => {
 };
 
 const getReconciliationById = async (id) => {
-    try {
-        const rec = await getdb.reconciliation.findUnique({
-            where: { id: Number(id) },
-            include: {
-                openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-                closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-                notes: true,
-                deals: {include: { deal: { select: {id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
-                createdBy: { select: { id: true, full_name: true, email: true } },
-            },
-        });
-        if (!rec) throw new Error("Reconciliation not found");
-        return rec;
-    } catch (error) {
-        logger.error("Failed to fetch reconciliation by ID:", error);
-        throw error;
-    }
+  try {
+    const rec = await getdb.reconciliation.findUnique({
+      where: { id: Number(id) },
+      include: {
+        openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
+        closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
+        notes: true,
+        deals: { include: { deal: { select: { id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
+        createdBy: { select: { id: true, full_name: true, email: true } },
+      },
+    });
+    if (!rec) throw new Error("Reconciliation not found");
+    return rec;
+  } catch (error) {
+    logger.error("Failed to fetch reconciliation by ID:", error);
+    throw error;
+  }
 };
 
 const updateReconciliation = async (id, data, userId) => {
@@ -482,7 +393,6 @@ const updateReconciliation = async (id, data, userId) => {
       include: {
         openingEntries: true,
         closingEntries: true,
-        deals: true,
       },
     });
 
@@ -493,19 +403,9 @@ const updateReconciliation = async (id, data, userId) => {
 
     if (hasOpening) await getdb.reconciliationOpening.deleteMany({ where: { reconciliation_id: reconciliation.id } });
     if (hasClosing) await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: reconciliation.id } });
+    if (Array.isArray(data.notes)) await getdb.reconciliationNote.deleteMany({ where: { reconciliation_id: reconciliation.id } });
 
-    const lastDealIds = reconciliation.deals.map(d => d.deal_id);
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    const newDeals = await getdb.deal.findMany({
-      where: {
-        created_at: { gte: startOfDay, lte: endOfDay },
-        id: { notIn: lastDealIds },
-      },
-      select: { id: true },
-    });
 
     const updatedReconciliation = await getdb.reconciliation.update({
       where: { id: reconciliation.id },
@@ -513,35 +413,35 @@ const updateReconciliation = async (id, data, userId) => {
         status: data.status,
         updated_at: now,
         ...(hasOpening && {
-          openingEntries: { create: data.openingEntries.map(e => ({
-            denomination: e.denomination,
-            quantity: e.quantity,
-            amount: e.amount,
-            exchange_rate: e.exchange_rate,
-            currency_id: e.currency_id,
-          })) },
+          openingEntries: {
+            create: data.openingEntries.map(e => ({
+              denomination: e.denomination || e.amount || 0,
+              quantity: e.quantity !== undefined && e.quantity !== null ? e.quantity : 1,
+              amount: e.amount,
+              exchange_rate: e.exchange_rate || 1.0,
+              currency_id: e.currency_id,
+            }))
+          },
         }),
         ...(hasClosing && {
-          closingEntries: { create: data.closingEntries.map(e => ({
-            denomination: e.denomination,
-            quantity: e.quantity,
-            amount: e.amount,
-            exchange_rate: e.exchange_rate,
-            currency_id: e.currency_id,
-          })) },
+          closingEntries: {
+            create: data.closingEntries.map(e => ({
+              denomination: e.denomination || e.amount || 0,
+              quantity: e.quantity !== undefined && e.quantity !== null ? e.quantity : 1,
+              amount: e.amount,
+              exchange_rate: e.exchange_rate || 1.0,
+              currency_id: e.currency_id,
+            }))
+          },
         }),
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
           notes: { create: data.notes.map(n => ({ note: n })) },
-        }),
-        ...(newDeals.length > 0 && {
-          deals: { create: newDeals.map(d => ({ deal_id: d.id })) },
         }),
       },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         notes: true,
-        deals: true,
       },
     });
 
@@ -553,9 +453,9 @@ const updateReconciliation = async (id, data, userId) => {
 };
 
 module.exports = {
-    createReconciliation,
-    getAllReconciliations,
-    getReconciliationAlerts,
-    getReconciliationById,
-    updateReconciliation,
+  createReconciliation,
+  getAllReconciliations,
+  getReconciliationAlerts,
+  getReconciliationById,
+  updateReconciliation,
 };

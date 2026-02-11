@@ -158,16 +158,24 @@ const startReconciliation = async (id, userId) => {
         const amount = Number(deal.amount || 0);
         const amountToBePaid = Number(deal.amount_to_be_paid || 0);
 
-        // Universal logic: buy_currency is Inflow, sell_currency is Outflow
-        if (buyCid) {
-          if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
-          console.log(`[DEAL ${deal.id}] ${deal.deal_type.toUpperCase()} - Inflow for ${buyCid}: +${amount}`);
-          currencyTotals[buyCid].expected += amount;
-        }
-        if (sellCid) {
-          if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
-          console.log(`[DEAL ${deal.id}] ${deal.deal_type.toUpperCase()} - Outflow for ${sellCid}: -${amountToBePaid}`);
-          currencyTotals[sellCid].expected -= amountToBePaid;
+        if (deal.deal_type === "buy") {
+          if (buyCid) {
+            if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+            currencyTotals[buyCid].expected += amount;
+          }
+          if (sellCid) {
+            if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+            currencyTotals[sellCid].expected -= amountToBePaid;
+          }
+        } else if (deal.deal_type === "sell") {
+          if (buyCid) {
+            if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+            currencyTotals[buyCid].expected += amountToBePaid;
+          }
+          if (sellCid) {
+            if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+            currencyTotals[sellCid].expected -= amount;
+          }
         }
       }
     });
@@ -552,10 +560,16 @@ const getReconciliationById = async (id) => {
     let totalBuy = 0;
     let totalSell = 0;
 
+    // Focus totals on TZS (the base currency) for meaningful summary volume
     for (const dealRec of rec.deals) {
       const deal = dealRec.deal;
-      totalBuy += Number(deal.amount || 0);
-      totalSell += Number(deal.amount_to_be_paid || 0);
+      if (deal.deal_type === 'buy') {
+        // Shop sells TZS (amount_to_be_paid)
+        totalSell += Number(deal.amount_to_be_paid || 0);
+      } else {
+        // Shop buys TZS (amount_to_be_paid)
+        totalBuy += Number(deal.amount_to_be_paid || 0);
+      }
     }
 
     return {

@@ -9,7 +9,7 @@ generator client {
 
 enum RoleEnum {
   Maker
-  Checker
+  Admin
 }
 
 enum DealType {

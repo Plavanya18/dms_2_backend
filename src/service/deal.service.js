@@ -255,6 +255,7 @@ const getAllDeals = async (
         buyAmount,
         sellAmount,
         profit: buyAmount - sellAmount,
+        count: dealsArray.length,
       };
     };
 

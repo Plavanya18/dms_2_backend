@@ -7,5 +7,6 @@ router.get("/", reconciliationController.getAllReconciliations);
 router.get("/alerts", reconciliationController.fetchReconciliationAlerts);
 router.get("/:id", reconciliationController.getReconciliationById);
 router.patch("/:id", reconciliationController.updateReconciliation);
+router.post("/:id/start", reconciliationController.startReconciliation);
 
 module.exports = router;

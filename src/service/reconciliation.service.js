@@ -69,6 +69,62 @@ const createReconciliation = async (data, userId) => {
   }
 };
 
+const startReconciliation = async (id, userId) => {
+  try {
+    const reconciliation = await getdb.reconciliation.findUnique({
+      where: { id: Number(id) },
+    });
+
+    if (!reconciliation) {
+      throw new Error("Reconciliation not found");
+    }
+
+    // Get the start and end of the day the reconciliation was created
+    const startOfDay = new Date(reconciliation.created_at);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(reconciliation.created_at);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Find all deals created on that day that are NOT already associated with a reconciliation
+    const deals = await getdb.deal.findMany({
+      where: {
+        created_at: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+        reconciliations: {
+          none: {},
+        },
+      },
+    });
+
+    if (deals.length > 0) {
+      await getdb.reconciliationDeal.createMany({
+        data: deals.map((deal) => ({
+          reconciliation_id: reconciliation.id,
+          deal_id: deal.id,
+        })),
+      });
+    }
+
+    const updatedReconciliation = await getdb.reconciliation.findUnique({
+      where: { id: reconciliation.id },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: { include: { deal: true } },
+      },
+    });
+
+    logger.info(`Reconciliation ${id} started. ${deals.length} deals associated.`);
+    return updatedReconciliation;
+  } catch (error) {
+    logger.error("Failed to start reconciliation:", error);
+    throw error;
+  }
+};
+
 const getAllReconciliations = async ({
   page = 1,
   limit = 10,
@@ -468,4 +524,5 @@ module.exports = {
   getReconciliationAlerts,
   getReconciliationById,
   updateReconciliation,
+  startReconciliation,
 };

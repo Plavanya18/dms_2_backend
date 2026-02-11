@@ -136,10 +136,28 @@ const updateReconciliation = async (req, res) => {
 };
 
 
+const startReconciliation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user;
+
+    const result = await reconciliationService.startReconciliation(id, userId);
+
+    return res.json({
+      message: "Reconciliation started and deals associated successfully",
+      data: result,
+    });
+  } catch (err) {
+    console.error("Error starting reconciliation:", err);
+    return res.status(500).json({ message: err.message || "Internal server error" });
+  }
+};
+
 module.exports = {
   createReconciliation,
   getAllReconciliations,
   fetchReconciliationAlerts,
   getReconciliationById,
   updateReconciliation,
+  startReconciliation,
 };

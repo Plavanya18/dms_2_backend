@@ -294,7 +294,17 @@ const getAllReconciliations = async ({
           include: { currency: { select: { id: true, code: true, name: true } } },
         },
         notes: true,
-        deals: { include: { deal: { select: { id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
+        deals: {
+          include: {
+            deal: {
+              include: {
+                customer: { select: { name: true } },
+                buyCurrency: { select: { code: true } },
+                sellCurrency: { select: { code: true } }
+              }
+            }
+          }
+        },
         createdBy: { select: { id: true, full_name: true, email: true } },
       },
       orderBy: { created_at: "desc" },
@@ -531,7 +541,17 @@ const getReconciliationById = async (id) => {
         openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
         closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
         notes: true,
-        deals: { include: { deal: { select: { id: true, deal_number: true, amount: true, amount_to_be_paid: true, deal_type: true, transaction_mode: true, status: true } } } },
+        deals: {
+          include: {
+            deal: {
+              include: {
+                customer: { select: { name: true } },
+                buyCurrency: { select: { code: true } },
+                sellCurrency: { select: { code: true } }
+              }
+            }
+          }
+        },
         createdBy: { select: { id: true, full_name: true, email: true } },
       },
     });

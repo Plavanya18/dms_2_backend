@@ -531,12 +531,29 @@ const getReconciliationById = async (id) => {
         openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
         closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
         notes: true,
-        deals: { include: { deal: { select: { id: true, deal_number: true, amount: true, deal_type: true, transaction_mode: true, status: true } } } },
+        deals: { include: { deal: { select: { id: true, deal_number: true, amount: true, amount_to_be_paid: true, deal_type: true, transaction_mode: true, status: true } } } },
         createdBy: { select: { id: true, full_name: true, email: true } },
       },
     });
     if (!rec) throw new Error("Reconciliation not found");
-    return rec;
+
+    let totalBuy = 0;
+    let totalSell = 0;
+
+    for (const dealRec of rec.deals) {
+      const deal = dealRec.deal;
+      if (deal.deal_type === "buy") {
+        totalSell += Number(deal.amount_to_be_paid || 0);
+      } else if (deal.deal_type === "sell") {
+        totalBuy += Number(deal.amount_to_be_paid || 0);
+      }
+    }
+
+    return {
+      ...rec,
+      totalBuy,
+      totalSell,
+    };
   } catch (error) {
     logger.error("Failed to fetch reconciliation by ID:", error);
     throw error;

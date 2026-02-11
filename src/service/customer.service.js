@@ -154,40 +154,47 @@ const getCustomerById = async (id) => {
 
     if (!customer) return null;
 
-    // Transform deals to include buy/sell totals and currencies
     const transformedDeals = (customer.deals || []).map((deal) => {
       const isBuy = deal.deal_type === "buy";
 
-      // Buy amount & currency
-      const buyAmount = (deal.receivedItems || []).reduce(
-        (sum, item) => sum + Number(item.total || 0),
-        0
-      );
-      const buyCurrency =
-        deal.receivedItems?.length > 0 ? deal.receivedItems[0].currency.code : null;
+      const buyCurrencyCode = deal.buyCurrency?.code || null;
+      const sellCurrencyCode = deal.sellCurrency?.code || null;
 
-      // Sell amount & currency
-      const sellAmount = (deal.paidItems || []).reduce(
-        (sum, item) => sum + Number(item.total || 0),
-        0
-      );
-      const sellCurrency =
-        deal.paidItems?.length > 0 ? deal.paidItems[0].currency.code : null;
+      const buyAmount = isBuy ? Number(deal.amount || 0) : Number(deal.amount_to_be_paid || 0);
+      const sellAmount = isBuy ? Number(deal.amount_to_be_paid || 0) : Number(deal.amount || 0);
 
-      // Format date yyyy/mm/dd
       const date = new Date(deal.created_at);
       const formattedDate = `${date.getFullYear()}/${(date.getMonth() + 1)
         .toString()
         .padStart(2, "0")}/${date.getDate().toString().padStart(2, "0")}`;
 
       return {
-        ...deal,
-        created_at: formattedDate,
+        id: deal.id,
+        deal_number: deal.deal_number,
+        customer_id: deal.customer_id,
+        buy_currency_id: deal.buy_currency_id,
+        sell_currency_id: deal.sell_currency_id,
         deal_type: isBuy ? "Buy" : "Sell",
+        transaction_mode: deal.transaction_mode,
+        amount: deal.amount,
+        exchange_rate: deal.exchange_rate,
+        amount_to_be_paid: deal.amount_to_be_paid,
+        remarks: deal.remarks,
+        action_reason: deal.action_reason,
+        status: deal.status,
+        created_by: deal.created_by,
+        action_by: deal.action_by,
+        action_at: deal.action_at,
+        completed_at: deal.completed_at,
+        created_at: formattedDate,
+        updated_at: deal.updated_at,
+        deleted_at: deal.deleted_at,
+        receivedItems: deal.receivedItems || [],
+        paidItems: deal.paidItems || [],
         buyAmount,
         sellAmount,
-        buyCurrency,
-        sellCurrency,
+        buyCurrency: buyCurrencyCode,
+        sellCurrency: sellCurrencyCode,
       };
     });
 

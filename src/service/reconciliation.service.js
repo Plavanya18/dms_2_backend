@@ -113,12 +113,103 @@ const startReconciliation = async (id, userId) => {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         notes: true,
-        deals: { include: { deal: true } },
+        deals: {
+          include: {
+            deal: {
+              include: { receivedItems: true, paidItems: true }
+            }
+          }
+        },
       },
     });
 
-    logger.info(`Reconciliation ${id} started. ${deals.length} deals associated.`);
-    return updatedReconciliation;
+    const currencyTotals = {};
+
+    updatedReconciliation.openingEntries.forEach(entry => {
+      const cid = entry.currency_id;
+      if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+      currencyTotals[cid].expected += Number(entry.amount || 0);
+    });
+
+    updatedReconciliation.closingEntries.forEach(entry => {
+      const cid = entry.currency_id;
+      if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+      currencyTotals[cid].actual += Number(entry.amount || 0);
+    });
+
+    updatedReconciliation.deals.forEach(rd => {
+      const deal = rd.deal;
+      const hasItems = (deal.receivedItems?.length > 0 || deal.paidItems?.length > 0);
+
+      if (hasItems) {
+        deal.receivedItems.forEach(item => {
+          const cid = item.currency_id;
+          if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+          currencyTotals[cid].expected += Number(item.total || 0);
+        });
+        deal.paidItems.forEach(item => {
+          const cid = item.currency_id;
+          if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+          currencyTotals[cid].expected -= Number(item.total || 0);
+        });
+      } else {
+        const buyCid = deal.buy_currency_id;
+        const sellCid = deal.sell_currency_id;
+        const amount = Number(deal.amount || 0);
+        const amountToBePaid = Number(deal.amount_to_be_paid || 0);
+
+        if (deal.deal_type === "buy") {
+          if (buyCid) {
+            if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+            currencyTotals[buyCid].expected += amount;
+          }
+          if (sellCid) {
+            if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+            currencyTotals[sellCid].expected -= amountToBePaid;
+          }
+        } else if (deal.deal_type === "sell") {
+          if (buyCid) {
+            if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+            currencyTotals[buyCid].expected += amountToBePaid;
+          }
+          if (sellCid) {
+            if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+            currencyTotals[sellCid].expected -= amount;
+          }
+        }
+      }
+    });
+
+    let finalStatus = "Tallied";
+    let hasExcess = false;
+    let hasShort = false;
+
+    Object.values(currencyTotals).forEach(v => {
+      const diff = v.actual - v.expected;
+      if (Math.abs(diff) < 0.01) return;
+      if (diff > 0) hasExcess = true;
+      if (diff < 0) hasShort = true;
+    });
+
+    if (hasShort) finalStatus = "Short";
+    else if (hasExcess) finalStatus = "Excess";
+
+    await getdb.reconciliation.update({
+      where: { id: reconciliation.id },
+      data: { status: finalStatus, updated_at: new Date() }
+    });
+
+    logger.info(`Reconciliation ${id} started. Final status: ${finalStatus}. ${deals.length} deals associated.`);
+
+    return await getdb.reconciliation.findUnique({
+      where: { id: reconciliation.id },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: { include: { deal: true } },
+      },
+    });
   } catch (error) {
     logger.error("Failed to start reconciliation:", error);
     throw error;

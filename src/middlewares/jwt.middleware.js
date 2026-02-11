@@ -4,8 +4,8 @@ const { asyncLocalStorage } = require("../context/request.context");
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
 
-// const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-const INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 1 day
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+// const INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 1 day
 
 const verifyToken = async (req, res, next) => {
   try {

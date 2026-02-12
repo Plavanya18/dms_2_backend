@@ -63,6 +63,7 @@ const getAllCustomers = async (
       where,
       skip,
       take: limit,
+      orderBy: { created_at: "desc" },
       include: {
         deals: {
           include: {

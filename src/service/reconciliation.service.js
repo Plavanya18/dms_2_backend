@@ -315,7 +315,7 @@ const getAllReconciliations = async ({
         },
         createdBy: { select: { id: true, full_name: true, email: true } },
       },
-      orderBy: { created_at: "desc" },
+      orderBy: { created_at: "asc" },
       skip,
       take: limit,
     });

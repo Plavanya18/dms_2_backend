@@ -181,19 +181,24 @@ const startReconciliation = async (id, userId) => {
       }
     });
 
-    let finalStatus = "Tallied";
-    let hasExcess = false;
-    let hasShort = false;
+    let finalStatus = "In_Progress";
+    const hasClosingData = updatedReconciliation.closingEntries && updatedReconciliation.closingEntries.length > 0 && updatedReconciliation.closingEntries.some(e => Number(e.amount) > 0);
 
-    Object.values(currencyTotals).forEach(v => {
-      const diff = v.actual - v.expected;
-      if (Math.abs(diff) < 0.01) return;
-      if (diff > 0) hasExcess = true;
-      if (diff < 0) hasShort = true;
-    });
+    if (hasClosingData) {
+      finalStatus = "Tallied";
+      let hasExcess = false;
+      let hasShort = false;
 
-    if (hasShort) finalStatus = "Short";
-    else if (hasExcess) finalStatus = "Excess";
+      Object.values(currencyTotals).forEach(v => {
+        const diff = v.actual - v.expected;
+        if (Math.abs(diff) < 0.01) return;
+        if (diff > 0) hasExcess = true;
+        if (diff < 0) hasShort = true;
+      });
+
+      if (hasShort) finalStatus = "Short";
+      else if (hasExcess) finalStatus = "Excess";
+    }
 
     await getdb.reconciliation.update({
       where: { id: reconciliation.id },

@@ -52,11 +52,19 @@ const createReconciliation = async (data, userId) => {
             }),
           },
         }),
+        ...(Array.isArray(data.deals) && data.deals.length > 0 && {
+          deals: {
+            create: data.deals.map((d) => ({
+              deal_id: Number(d.deal_id || d.id)
+            }))
+          }
+        }),
       },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         notes: true,
+        deals: { include: { deal: true } },
       },
     });
 
@@ -653,11 +661,20 @@ const updateReconciliation = async (id, data, userId) => {
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
           notes: { create: data.notes.map(n => ({ note: n })) },
         }),
+        ...(Array.isArray(data.deals) && data.deals.length > 0 && {
+          deals: {
+            deleteMany: {},
+            create: data.deals.map((d) => ({
+              deal_id: Number(d.deal_id || d.id)
+            }))
+          }
+        }),
       },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         notes: true,
+        deals: { include: { deal: true } },
       },
     });
 

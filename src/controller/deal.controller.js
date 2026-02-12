@@ -44,7 +44,9 @@ const listDealController = async (req, res) => {
       dateFilter,
       startDate,
       endDate,
-      format
+      format,
+      req.user,
+      req.roleName
     );
 
     if (result.filePath) {
@@ -67,7 +69,7 @@ const listDealController = async (req, res) => {
 const getDealControllerById = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await dealService.getDealById(Number(id));
+    const result = await dealService.getDealById(Number(id), req.user, req.roleName);
 
     if (!result) {
       return res.status(404).json({ message: "Deal not found" });

@@ -224,6 +224,8 @@ const getAllReconciliations = async ({
   endDate,
   status,
   format,
+  userId = null,
+  roleName = ""
 }) => {
   try {
     const skip = (page - 1) * limit;
@@ -280,7 +282,13 @@ const getAllReconciliations = async ({
       where.status = status;
     }
 
-    where.created_at = { gte: start, lte: end };
+    if (roleName === "Maker") {
+      where.created_by = userId;
+    }
+
+    if (start && end) {
+      where.created_at = { gte: start, lte: end };
+    }
 
     const total = await getdb.reconciliation.count({ where });
 
@@ -533,7 +541,7 @@ const getReconciliationAlerts = async () => {
   return [...reconciliationFormatted, ...pendingFormatted];
 };
 
-const getReconciliationById = async (id) => {
+const getReconciliationById = async (id, userId = null, roleName = "") => {
   try {
     const rec = await getdb.reconciliation.findUnique({
       where: { id: Number(id) },
@@ -556,6 +564,11 @@ const getReconciliationById = async (id) => {
       },
     });
     if (!rec) throw new Error("Reconciliation not found");
+
+    if (roleName === "Maker" && rec.created_by !== userId) {
+      throw new Error("Access denied. You can only view your own reconciliations.");
+    }
+
 
     let totalBuy = 0;
     let totalSell = 0;

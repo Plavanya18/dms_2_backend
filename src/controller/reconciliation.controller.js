@@ -45,6 +45,8 @@ const getAllReconciliations = async (req, res) => {
       endDate,
       status,
       format,
+      userId: req.user,
+      roleName: req.roleName
     });
 
     if (result.filePath) {
@@ -87,7 +89,7 @@ const fetchReconciliationAlerts = async (req, res) => {
 const getReconciliationById = async (req, res) => {
   try {
     const { id } = req.params;
-    const rec = await reconciliationService.getReconciliationById(id);
+    const rec = await reconciliationService.getReconciliationById(id, req.user, req.roleName);
     return res.json({ message: "Reconciliation fetched successfully", data: rec });
   } catch (err) {
     return res.status(404).json({ message: err.message });

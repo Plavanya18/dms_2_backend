@@ -130,7 +130,9 @@ const getAllDeals = async (
   dateFilter = "",
   startDate = "",
   endDate = "",
-  format = ""
+  format = "",
+  userId = null,
+  roleName = ""
 ) => {
   try {
     const skip = (page - 1) * limit;
@@ -140,8 +142,12 @@ const getAllDeals = async (
     if (search) {
       where.OR = [
         { deal_number: { contains: search } },
-        { customer_name: { contains: search } },
+        { customer: { name: { contains: search } } },
       ];
+    }
+
+    if (roleName === "Maker") {
+      where.created_by = userId;
     }
 
     // Status
@@ -264,13 +270,28 @@ const getAllDeals = async (
     const startYesterday = new Date(startToday); startYesterday.setDate(startYesterday.getDate() - 1);
     const endYesterday = new Date(startToday); endYesterday.setMilliseconds(-1);
 
-    const todayDeals = await getdb.deal.findMany({ where: { created_at: { gte: startToday, lte: endToday } } });
-    const yesterdayDeals = await getdb.deal.findMany({ where: { created_at: { gte: startYesterday, lte: endYesterday } } });
+    const statsWhere = { ...where };
+    delete statsWhere.created_at;
+
+    const todayDeals = await getdb.deal.findMany({
+      where: {
+        ...statsWhere,
+        created_at: { gte: startToday, lte: endToday }
+      }
+    });
+    const yesterdayDeals = await getdb.deal.findMany({
+      where: {
+        ...statsWhere,
+        created_at: { gte: startYesterday, lte: endYesterday }
+      }
+    });
+
+    const allMatchingDeals = await getdb.deal.findMany({ where: statsWhere });
 
     const stats = {
       today: calculateTotals(todayDeals),
       yesterday: calculateTotals(yesterdayDeals),
-      total: calculateTotals(deals) // overall totals
+      total: calculateTotals(allMatchingDeals)
     };
 
     if (format === "pdf") {
@@ -425,9 +446,9 @@ const geneexchange_ratePDF = async (deals) => {
   });
 };
 
-const getDealById = async (id) => {
+const getDealById = async (id, userId = null, roleName = "") => {
   try {
-    return await getdb.deal.findUnique({
+    const deal = await getdb.deal.findUnique({
       where: { id: Number(id) },
       include: {
         customer: { select: { id: true, name: true, phone_number: true, email: true } },
@@ -439,6 +460,12 @@ const getDealById = async (id) => {
         sellCurrency: { select: { id: true, code: true, name: true } },
       },
     });
+
+    if (deal && roleName === "Maker" && deal.created_by !== userId) {
+      throw new Error("Access denied. You can only view your own deals.");
+    }
+
+    return deal;
 
   } catch (error) {
     logger.error(`Failed to fetch deal with ID ${id}:`, error);

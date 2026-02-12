@@ -65,8 +65,7 @@ const verifyToken = async (req, res, next) => {
     });
 
     req.user = decoded.user_id;
-    req.role = decoded.role_id;
-    req.roleName = decoded.roleName;
+    req.roleName = decoded.role;
 
     asyncLocalStorage.run(new Map(), () => {
       const store = asyncLocalStorage.getStore();

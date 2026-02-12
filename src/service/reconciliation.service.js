@@ -95,6 +95,7 @@ const startReconciliation = async (id, userId) => {
         reconciliations: {
           none: {},
         },
+        created_by: userId,
       },
     });
 
@@ -282,7 +283,7 @@ const getAllReconciliations = async ({
       where.status = status;
     }
 
-    if (roleName === "Maker") {
+    if (roleName !== "Admin") {
       where.created_by = userId;
     }
 
@@ -565,7 +566,7 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     });
     if (!rec) throw new Error("Reconciliation not found");
 
-    if (roleName === "Maker" && rec.created_by !== userId) {
+    if (roleName !== "Admin" && rec.created_by !== userId) {
       throw new Error("Access denied. You can only view your own reconciliations.");
     }
 

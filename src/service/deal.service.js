@@ -157,14 +157,14 @@ const getAllDeals = async (
     if (currency) {
       where.OR = where.OR
         ? [
-            ...where.OR,
-            { buyCurrency: { code: { contains: currency } } },
-            { sellCurrency: { code: { contains: currency } } },
-          ]
+          ...where.OR,
+          { buyCurrency: { code: { contains: currency } } },
+          { sellCurrency: { code: { contains: currency } } },
+        ]
         : [
-            { buyCurrency: { code: { contains: currency } } },
-            { sellCurrency: { code: { contains: currency } } },
-          ];
+          { buyCurrency: { code: { contains: currency } } },
+          { sellCurrency: { code: { contains: currency } } },
+        ];
     }
 
     // Date filter
@@ -242,9 +242,9 @@ const getAllDeals = async (
     // Map deals with amount_to_be_paid only
     const dealsWithTotals = deals.map(deal => {
       return {
-      ...deal,
-      amount: Number(deal.amount || 0),
-      amount_to_be_paid: Number(deal.amount_to_be_paid || 0),
+        ...deal,
+        amount: Number(deal.amount || 0),
+        amount_to_be_paid: Number(deal.amount_to_be_paid || 0),
       };
     });
 
@@ -318,8 +318,40 @@ const getAllDeals = async (
       (d) => new Date(d.created_at) >= startYesterday && new Date(d.created_at) <= endYesterday
     );
 
+    const reconciliationWhere = {
+      created_at: { lt: startToday }
+    };
+
+    if (roleName !== "Admin") {
+      reconciliationWhere.created_by = userId;
+    }
+
+    const lastReconciliation = await getdb.reconciliation.findFirst({
+      where: reconciliationWhere,
+      orderBy: { created_at: "desc" },
+      include: {
+        closingEntries: {
+          include: { currency: { select: { code: true } } }
+        }
+      }
+    });
+
+    let openingUSD = 0;
+    let openingTZS = 0;
+
+    if (lastReconciliation) {
+      lastReconciliation.closingEntries.forEach(entry => {
+        if (entry.currency.code === "USD") openingUSD += Number(entry.amount || 0);
+        if (entry.currency.code === "TZS") openingTZS += Number(entry.amount || 0);
+      });
+    }
+
     const stats = {
-      today: calculateTotals(todayDeals),
+      today: {
+        ...calculateTotals(todayDeals),
+        openingUSD,
+        openingTZS
+      },
       yesterday: calculateTotals(yesterdayDeals),
     };
 

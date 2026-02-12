@@ -170,18 +170,41 @@ const getAllDeals = async (
     // Date filter
     const now = new Date();
     let fromDate = null;
+
     if (dateFilter === "today") {
       const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
       where.created_at = { gte: startToday, lte: endToday };
     }
-    if (dateFilter === "last7") fromDate = new Date(now.setDate(now.getDate() - 7));
-    if (dateFilter === "last30") fromDate = new Date(now.setDate(now.getDate() - 30));
-    if (dateFilter === "last90") fromDate = new Date(now.setDate(now.getDate() - 90));
-    if (dateFilter === "custom" && startDate && endDate) {
-      where.created_at = { gte: new Date(startDate), lte: new Date(endDate) };
+
+    if (dateFilter === "last7") {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      fromDate = d;
     }
-    if (fromDate && dateFilter !== "custom") where.created_at = { gte: fromDate };
+
+    if (dateFilter === "last30") {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      fromDate = d;
+    }
+
+    if (dateFilter === "last90") {
+      const d = new Date();
+      d.setDate(d.getDate() - 90);
+      fromDate = d;
+    }
+
+    if (dateFilter === "custom" && startDate && endDate) {
+      where.created_at = {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      };
+    }
+
+    if (fromDate && dateFilter !== "custom") {
+      where.created_at = { gte: fromDate };
+    }
 
     // Total count
     const total = await getdb.deal.count({ where });
@@ -203,50 +226,66 @@ const getAllDeals = async (
       orderBy: { [orderByField]: orderDirection },
     });
 
-    // Deactivate inactive customers (older than 15 days)
-    const FIFTEEN_DAYS = 15 * 24 * 60 * 60 * 1000;
-    const customerIds = [...new Set(deals.map((d) => d.customer_id))];
+    // =========================
+    // RECONCILIATION LOGIC FIX
+    // =========================
 
-    for (const customerId of customerIds) {
-      const lastDeal = await getdb.deal.findFirst({
-        where: { customer_id: customerId },
-        orderBy: { created_at: "desc" },
-        select: { created_at: true },
+    const startToday = new Date();
+    startToday.setHours(0, 0, 0, 0);
+
+    const endToday = new Date();
+    endToday.setHours(23, 59, 59, 999);
+
+    const reconciliationWhere = {};
+
+    if (roleName !== "Admin") {
+      reconciliationWhere.created_by = userId;
+    }
+
+    const lastReconciliation = await getdb.reconciliation.findFirst({
+      where: reconciliationWhere,
+      orderBy: { created_at: "desc" },
+      include: {
+        openingEntries: {
+          include: { currency: { select: { code: true } } },
+        },
+        closingEntries: {
+          include: { currency: { select: { code: true } } },
+        },
+      },
+    });
+
+    let openingUSD = 0;
+    let openingTZS = 0;
+
+    if (lastReconciliation) {
+      const reconDate = new Date(lastReconciliation.created_at);
+
+      const isTodayReconciliation =
+        reconDate >= startToday && reconDate <= endToday;
+
+      const entriesToUse = isTodayReconciliation
+        ? lastReconciliation.openingEntries
+        : lastReconciliation.closingEntries;
+
+      entriesToUse.forEach((entry) => {
+        if (entry.currency.code === "USD")
+          openingUSD += Number(entry.amount || 0);
+
+        if (entry.currency.code === "TZS")
+          openingTZS += Number(entry.amount || 0);
       });
-      if (!lastDeal) continue;
-      const diff = new Date() - new Date(lastDeal.created_at);
-      if (diff > FIFTEEN_DAYS) {
-        await getdb.customer.update({
-          where: { id: customerId },
-          data: { is_active: false, updated_at: new Date() },
-        });
-      }
     }
 
-    // Customers with no deals older than 15 days
-    const customersWithoutDeals = await getdb.customer.findMany({
-      where: { deals: { none: {} }, is_active: true },
-      select: { id: true, created_at: true },
-    });
+    // =========================
+    // DEAL TOTAL CALCULATION
+    // =========================
 
-    for (const customer of customersWithoutDeals) {
-      const diff = new Date() - new Date(customer.created_at);
-      if (diff > FIFTEEN_DAYS) {
-        await getdb.customer.update({
-          where: { id: customer.id },
-          data: { is_active: false, updated_at: new Date() },
-        });
-      }
-    }
-
-    // Map deals with amount_to_be_paid only
-    const dealsWithTotals = deals.map(deal => {
-      return {
-        ...deal,
-        amount: Number(deal.amount || 0),
-        amount_to_be_paid: Number(deal.amount_to_be_paid || 0),
-      };
-    });
+    const dealsWithTotals = deals.map((deal) => ({
+      ...deal,
+      amount: Number(deal.amount || 0),
+      amount_to_be_paid: Number(deal.amount_to_be_paid || 0),
+    }));
 
     const calculateTotals = (dealsArray) => {
       let buyUSD = 0;
@@ -287,22 +326,19 @@ const getAllDeals = async (
       };
     };
 
-    const statsWhere = { ...where };
-    delete statsWhere.created_at;
-
     const allDealsForStats = await getdb.deal.findMany({
-      where: statsWhere,
+      where,
       include: {
         buyCurrency: { select: { code: true } },
         sellCurrency: { select: { code: true } },
       },
     });
 
-    const startToday = new Date();
-    startToday.setHours(0, 0, 0, 0);
-
-    const endToday = new Date();
-    endToday.setHours(23, 59, 59, 999);
+    const todayDeals = allDealsForStats.filter(
+      (d) =>
+        new Date(d.created_at) >= startToday &&
+        new Date(d.created_at) <= endToday
+    );
 
     const startYesterday = new Date(startToday);
     startYesterday.setDate(startYesterday.getDate() - 1);
@@ -310,47 +346,17 @@ const getAllDeals = async (
     const endYesterday = new Date(startToday);
     endYesterday.setMilliseconds(-1);
 
-    const todayDeals = allDealsForStats.filter(
-      (d) => new Date(d.created_at) >= startToday && new Date(d.created_at) <= endToday
-    );
-
     const yesterdayDeals = allDealsForStats.filter(
-      (d) => new Date(d.created_at) >= startYesterday && new Date(d.created_at) <= endYesterday
+      (d) =>
+        new Date(d.created_at) >= startYesterday &&
+        new Date(d.created_at) <= endYesterday
     );
-
-    const reconciliationWhere = {
-      created_at: { lt: startToday }
-    };
-
-    if (roleName !== "Admin") {
-      reconciliationWhere.created_by = userId;
-    }
-
-    const lastReconciliation = await getdb.reconciliation.findFirst({
-      where: reconciliationWhere,
-      orderBy: { created_at: "desc" },
-      include: {
-        closingEntries: {
-          include: { currency: { select: { code: true } } }
-        }
-      }
-    });
-
-    let openingUSD = 0;
-    let openingTZS = 0;
-
-    if (lastReconciliation) {
-      lastReconciliation.closingEntries.forEach(entry => {
-        if (entry.currency.code === "USD") openingUSD += Number(entry.amount || 0);
-        if (entry.currency.code === "TZS") openingTZS += Number(entry.amount || 0);
-      });
-    }
 
     const stats = {
       today: {
         ...calculateTotals(todayDeals),
         openingUSD,
-        openingTZS
+        openingTZS,
       },
       yesterday: calculateTotals(yesterdayDeals),
     };
@@ -359,6 +365,7 @@ const getAllDeals = async (
       const filePath = await geneexchange_ratePDF(dealsWithTotals);
       return { filePath, stats };
     }
+
     if (format === "excel") {
       const filePath = await geneexchange_rateExcel(dealsWithTotals);
       return { filePath, stats };
@@ -366,15 +373,20 @@ const getAllDeals = async (
 
     return {
       data: dealsWithTotals,
-      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
       stats,
     };
-
   } catch (error) {
     logger.error("Failed to fetch deals:", error);
     throw error;
   }
 };
+
 
 const geneexchange_rateExcel = async (deals) => {
   const workbook = new ExcelJS.Workbook();

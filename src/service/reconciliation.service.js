@@ -586,16 +586,31 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
 
     let totalBuy = 0;
     let totalSell = 0;
+    const currencyStats = {};
 
-    // Focus totals on TZS (the base currency) for meaningful summary volume
     for (const dealRec of rec.deals) {
       const deal = dealRec.deal;
+      const amount = Number(deal.amount || 0);
+      const amountTzs = Number(deal.amount_to_be_paid || 0);
+      const buyCid = deal.buy_currency_id;
+      const sellCid = deal.sell_currency_id;
+      const buyCode = deal.buyCurrency?.code;
+      const sellCode = deal.sellCurrency?.code;
+
       if (deal.deal_type === 'buy') {
-        // Shop sells TZS (amount_to_be_paid)
-        totalSell += Number(deal.amount_to_be_paid || 0);
+        totalSell += amountTzs;
+        if (buyCid && buyCode !== 'TZS') {
+          if (!currencyStats[buyCid]) currencyStats[buyCid] = { code: buyCode, buyAmount: 0, buyTotalLocal: 0, sellAmount: 0, sellTotalLocal: 0 };
+          currencyStats[buyCid].buyAmount += amount;
+          currencyStats[buyCid].buyTotalLocal += amountTzs;
+        }
       } else {
-        // Shop buys TZS (amount_to_be_paid)
-        totalBuy += Number(deal.amount_to_be_paid || 0);
+        totalBuy += amountTzs;
+        if (sellCid && sellCode !== 'TZS') {
+          if (!currencyStats[sellCid]) currencyStats[sellCid] = { code: sellCode, buyAmount: 0, buyTotalLocal: 0, sellAmount: 0, sellTotalLocal: 0 };
+          currencyStats[sellCid].sellAmount += amount;
+          currencyStats[sellCid].sellTotalLocal += amountTzs;
+        }
       }
     }
 
@@ -603,6 +618,7 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
       ...rec,
       totalBuy,
       totalSell,
+      currencyStats,
     };
   } catch (error) {
     logger.error("Failed to fetch reconciliation by ID:", error);

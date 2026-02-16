@@ -560,8 +560,12 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     const rec = await getdb.reconciliation.findUnique({
       where: { id: Number(id) },
       include: {
-        openingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
-        closingEntries: { include: { currency: { select: { id: true, code: true, name: true } } } },
+        openingEntries: {
+          include: { currency: { select: { id: true, code: true, name: true } } }
+        },
+        closingEntries: {
+          include: { currency: { select: { id: true, code: true, name: true } } }
+        },
         notes: true,
         deals: {
           include: {
@@ -574,54 +578,174 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
             }
           }
         },
-        createdBy: { select: { id: true, full_name: true, email: true } },
-      },
+        createdBy: { select: { id: true, full_name: true, email: true } }
+      }
     });
+
     if (!rec) throw new Error("Reconciliation not found");
 
     if (roleName !== "Admin" && rec.created_by !== userId) {
       throw new Error("Access denied. You can only view your own reconciliations.");
     }
 
+    console.log("✅ Reconciliation fetched:", rec.id);
+    console.log("📌 Opening Entries:", rec.openingEntries);
+    console.log("📌 Closing Entries:", rec.closingEntries);
+    console.log("📌 Total Deals:", rec.deals.length);
 
-    let totalBuy = 0;
-    let totalSell = 0;
+    // AGGREGATION VARIABLES
+    let totalTzsPaid = 0;
+    let totalTzsReceived = 0;
+    let totalForeignBought = 0;
+    let totalForeignSold = 0;
+
     const currencyStats = {};
 
+    console.log("🔄 Processing deals...");
+
+    // PROCESS DEALS
     for (const dealRec of rec.deals) {
       const deal = dealRec.deal;
-      const amount = Number(deal.amount || 0);
-      const amountTzs = Number(deal.amount_to_be_paid || 0);
-      const buyCid = deal.buy_currency_id;
-      const sellCid = deal.sell_currency_id;
+
+      const foreignAmount = Number(deal.amount || 0);
+      const tzsAmount = Number(deal.amount_to_be_paid || 0);
+
       const buyCode = deal.buyCurrency?.code;
       const sellCode = deal.sellCurrency?.code;
+      const buyCid = deal.buy_currency_id;
+      const sellCid = deal.sell_currency_id;
 
-      if (deal.deal_type === 'buy') {
-        totalSell += amountTzs;
-        if (buyCid && buyCode !== 'TZS') {
-          if (!currencyStats[buyCid]) currencyStats[buyCid] = { code: buyCode, buyAmount: 0, buyTotalLocal: 0, sellAmount: 0, sellTotalLocal: 0 };
-          currencyStats[buyCid].buyAmount += amount;
-          currencyStats[buyCid].buyTotalLocal += amountTzs;
+      console.log(
+        `➡️ Deal ${deal.deal_number} | ${deal.deal_type.toUpperCase()} | ${foreignAmount} @ ${deal.exchange_rate}`
+      );
+
+      // ---------------- BUY DEAL ----------------
+      if (deal.deal_type === "buy" && buyCode !== "TZS") {
+        totalTzsPaid += tzsAmount;
+        totalForeignBought += foreignAmount;
+
+        if (!currencyStats[buyCid]) {
+          currencyStats[buyCid] = {
+            code: buyCode,
+            boughtAmount: 0,
+            soldAmount: 0,
+            tzsPaid: 0,
+            tzsReceived: 0
+          };
         }
-      } else {
-        totalBuy += amountTzs;
-        if (sellCid && sellCode !== 'TZS') {
-          if (!currencyStats[sellCid]) currencyStats[sellCid] = { code: sellCode, buyAmount: 0, buyTotalLocal: 0, sellAmount: 0, sellTotalLocal: 0 };
-          currencyStats[sellCid].sellAmount += amount;
-          currencyStats[sellCid].sellTotalLocal += amountTzs;
+
+        currencyStats[buyCid].boughtAmount += foreignAmount;
+        currencyStats[buyCid].tzsPaid += tzsAmount;
+
+        console.log(`   🟢 BUY ${buyCode}: +${foreignAmount}, TZS Paid: ${tzsAmount}`);
+      }
+
+      // ---------------- SELL DEAL ----------------
+      if (deal.deal_type === "sell" && sellCode !== "TZS") {
+        totalTzsReceived += tzsAmount;
+        totalForeignSold += foreignAmount;
+
+        if (!currencyStats[sellCid]) {
+          currencyStats[sellCid] = {
+            code: sellCode,
+            boughtAmount: 0,
+            soldAmount: 0,
+            tzsPaid: 0,
+            tzsReceived: 0
+          };
         }
+
+        currencyStats[sellCid].soldAmount += foreignAmount;
+        currencyStats[sellCid].tzsReceived += tzsAmount;
+
+        console.log(`   🔴 SELL ${sellCode}: -${foreignAmount}, TZS Received: ${tzsAmount}`);
       }
     }
 
+    console.log("📊 Currency Aggregation:", currencyStats);
+    console.log("💸 Total TZS Paid:", totalTzsPaid);
+    console.log("💰 Total TZS Received:", totalTzsReceived);
+
+    // CALCULATE AVERAGES PER CURRENCY
+    for (const cid in currencyStats) {
+      const c = currencyStats[cid];
+
+      c.avgBuyRate = c.boughtAmount
+        ? c.tzsPaid / c.boughtAmount
+        : 0;
+
+      c.avgSellRate = c.soldAmount
+        ? c.tzsReceived / c.soldAmount
+        : 0;
+
+      c.netPosition = c.boughtAmount - c.soldAmount;
+
+      console.log(`📈 ${c.code} Stats:`, c);
+    }
+
+    // TOTAL WEIGHTED AVERAGE RATE (IMPORTANT)
+    const totalWeightedAvgRate =
+      (totalTzsPaid + totalTzsReceived) /
+      (totalForeignBought + totalForeignSold || 1);
+
+    console.log("📐 TOTAL WEIGHTED AVG RATE:", totalWeightedAvgRate);
+
+    // VALUATION RATE (AVG BUY USD)
+    const usdCurrency = Object.values(currencyStats).find(
+      c => c.code === "USD"
+    );
+
+    const valuationRate = usdCurrency?.avgBuyRate || 0;
+    console.log("📐 Valuation Rate (USD Avg Buy):", valuationRate);
+
+    // OPENING / CLOSING BALANCES
+    let openingUSD = 0;
+    let openingTZS = 0;
+    let closingUSD = 0;
+    let closingTZS = 0;
+
+    for (const o of rec.openingEntries) {
+      if (o.currency.code === "USD") openingUSD += Number(o.amount);
+      if (o.currency.code === "TZS") openingTZS += Number(o.amount);
+    }
+
+    for (const c of rec.closingEntries) {
+      if (c.currency.code === "USD") closingUSD += Number(c.amount);
+      if (c.currency.code === "TZS") closingTZS += Number(c.amount);
+    }
+
+    console.log("📂 Opening USD:", openingUSD, "| Opening TZS:", openingTZS);
+    console.log("📂 Closing USD:", closingUSD, "| Closing TZS:", closingTZS);
+
+    // PROFIT / LOSS
+    const totalOpeningValue =
+      openingUSD * valuationRate + openingTZS;
+
+    const totalClosingValue =
+      closingUSD * valuationRate + closingTZS;
+
+    const profitLoss =
+      totalClosingValue - totalOpeningValue;
+
+    console.log("📊 Opening Value (TZS):", totalOpeningValue);
+    console.log("📊 Closing Value (TZS):", totalClosingValue);
+    console.log("📉 PROFIT / LOSS (TZS):", profitLoss);
+
     return {
       ...rec,
-      totalBuy,
-      totalSell,
+      totalTzsPaid,
+      totalTzsReceived,
+      totalForeignBought,
+      totalForeignSold,
+      totalWeightedAvgRate,
+      valuationRate,
       currencyStats,
+      totalOpeningValue,
+      totalClosingValue,
+      profitLoss
     };
   } catch (error) {
-    logger.error("Failed to fetch reconciliation by ID:", error);
+    logger.error("❌ Failed to fetch reconciliation by ID:", error);
     throw error;
   }
 };

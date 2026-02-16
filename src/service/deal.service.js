@@ -125,8 +125,6 @@ const getAllDeals = async (
   search = "",
   status = "",
   currency = "",
-  orderByField = "created_at",
-  orderDirection = "asc",
   dateFilter = "",
   startDate = "",
   endDate = "",
@@ -223,12 +221,8 @@ const getAllDeals = async (
       },
       skip,
       take: limit,
-      orderBy: { [orderByField]: orderDirection },
+      orderBy: { created_at: "desc" },
     });
-
-    // =========================
-    // RECONCILIATION LOGIC FIX
-    // =========================
 
     const startToday = new Date();
     startToday.setHours(0, 0, 0, 0);
@@ -238,8 +232,8 @@ const getAllDeals = async (
 
     const reconciliationWhere = {};
 
-    if (roleName !== "Admin") {
-      reconciliationWhere.created_by = userId;
+    if (roleName !== "Admin" && userId) {
+      reconciliationWhere.created_by = Number(userId);
     }
 
     const lastReconciliation = await getdb.reconciliation.findFirst({

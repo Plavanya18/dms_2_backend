@@ -125,6 +125,8 @@ const getAllDeals = async (
   search = "",
   status = "",
   currency = "",
+  orderByField = "created_at",
+  orderDirection = "desc",
   dateFilter = "",
   startDate = "",
   endDate = "",
@@ -135,6 +137,7 @@ const getAllDeals = async (
   try {
     const skip = (page - 1) * limit;
     const where = {};
+    const now = new Date();
 
     // Search
     if (search) {
@@ -144,64 +147,62 @@ const getAllDeals = async (
       ];
     }
 
+    // Role-based filtering
     if (roleName === "Maker") {
       where.created_by = userId;
     }
 
-    // Status
-    if (status) where.status = status;
+    // Status Filter
+    if (status && status !== "All Status") {
+      where.status = status;
+    }
 
-    // Currency
-    if (currency) {
-      where.OR = where.OR
-        ? [
-          ...where.OR,
+    // Currency Filter (Applied as AND with other filters)
+    if (currency && currency !== "All Currencies") {
+      const currencyFilter = {
+        OR: [
           { buyCurrency: { code: { contains: currency } } },
           { sellCurrency: { code: { contains: currency } } },
-        ]
-        : [
-          { buyCurrency: { code: { contains: currency } } },
-          { sellCurrency: { code: { contains: currency } } },
-        ];
-    }
-
-    // Date filter
-    const now = new Date();
-    let fromDate = null;
-
-    if (dateFilter === "today") {
-      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      where.created_at = { gte: startToday, lte: endToday };
-    }
-
-    if (dateFilter === "last7") {
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      fromDate = d;
-    }
-
-    if (dateFilter === "last30") {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      fromDate = d;
-    }
-
-    if (dateFilter === "last90") {
-      const d = new Date();
-      d.setDate(d.getDate() - 90);
-      fromDate = d;
-    }
-
-    if (dateFilter === "custom" && startDate && endDate) {
-      where.created_at = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
+        ],
       };
+      if (where.AND) {
+        where.AND.push(currencyFilter);
+      } else {
+        where.AND = [currencyFilter];
+      }
     }
 
-    if (fromDate && dateFilter !== "custom") {
-      where.created_at = { gte: fromDate };
+    // Date filtering logic
+    if (dateFilter) {
+      if (dateFilter === "today") {
+        const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        where.created_at = { gte: startToday, lte: endToday };
+      } else if (dateFilter === "last7") {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        d.setHours(0, 0, 0, 0);
+        where.created_at = { gte: d };
+      } else if (dateFilter === "last30") {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        d.setHours(0, 0, 0, 0);
+        where.created_at = { gte: d };
+      } else if (dateFilter === "last90") {
+        const d = new Date();
+        d.setDate(d.getDate() - 90);
+        d.setHours(0, 0, 0, 0);
+        where.created_at = { gte: d };
+      } else if (dateFilter === "custom" && startDate && endDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.created_at = {
+          gte: start,
+          lte: end,
+        };
+      }
     }
 
     // Total count
@@ -221,7 +222,7 @@ const getAllDeals = async (
       },
       skip,
       take: limit,
-      orderBy: { created_at: "desc" },
+      orderBy: { [orderByField]: orderDirection },
     });
 
     const startToday = new Date();

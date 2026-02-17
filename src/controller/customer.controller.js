@@ -20,8 +20,10 @@ const getAllCustomers = async (req, res) => {
       Number(page) || 1,
       Number(limit) || 10,
       search || "",
-      searchType
-      );
+      searchType,
+      req.roleName,
+      req.user
+    );
 
     return res.status(200).json({ message: "Customers fetched successfully", ...result });
   } catch (error) {
@@ -39,7 +41,7 @@ const getCustomerById = async (req, res) => {
       return res.status(404).json({ message: "Customer not found" });
     }
 
-    return res.status(200).json({message: "Customer fetched successfully", data: customer });
+    return res.status(200).json({ message: "Customer fetched successfully", data: customer });
   } catch (error) {
     logger.error(`Error in getCustomerById controller for ID ${req.params.id}:`, error);
     return res.status(500).json({ error: error.message });
@@ -50,7 +52,7 @@ const updateCustomer = async (req, res) => {
   try {
     const id = req.params.id;
     const updated = await customerService.updateCustomer(id, req.body);
-    return res.status(200).json({message: "Customer updated successfully", data: updated });
+    return res.status(200).json({ message: "Customer updated successfully", data: updated });
   } catch (error) {
     logger.error(`Error in updateCustomer controller for ID ${req.params.id}:`, error);
     return res.status(500).json({ error: error.message });
@@ -61,7 +63,7 @@ const deleteCustomer = async (req, res) => {
   try {
     const id = req.params.id;
     const deleted = await customerService.deleteCustomer(id);
-    return res.status(200).json({message: "Customer deleted successfully"});
+    return res.status(200).json({ message: "Customer deleted successfully" });
   } catch (error) {
     logger.error(`Error in deleteCustomer controller for ID ${req.params.id}:`, error);
     return res.status(500).json({ error: error.message });

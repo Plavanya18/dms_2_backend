@@ -34,31 +34,32 @@ const getAllCustomers = async (
   limit = 10,
   search = "",
   searchType = "all",
+  roleName = "",
+  userId = null
 ) => {
   try {
     const skip = (page - 1) * limit;
 
     let where = {};
 
+    // Role-based filtering: Non-admins only see their own customers
+    if (roleName !== "Admin" && userId) {
+      where.created_by = Number(userId);
+    }
+
     if (search) {
       if (searchType === "name") {
-        where = {
-          name: { contains: search },
-          is_active: true,
-        };
+        where.name = { contains: search };
+        where.is_active = true;
       } else if (searchType === "phone") {
         const cleanSearch = search.replace(/\D/g, "");
-        where = {
-          phone_number: { contains: cleanSearch },
-        };
+        where.phone_number = { contains: cleanSearch };
       } else {
-        where = {
-          OR: [
-            { name: { contains: search } },
-            { phone_number: { contains: search } },
-            { email: { contains: search } },
-          ],
-        };
+        where.OR = [
+          { name: { contains: search } },
+          { phone_number: { contains: search } },
+          { email: { contains: search } },
+        ];
       }
     }
 

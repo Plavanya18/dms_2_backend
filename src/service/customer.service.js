@@ -46,6 +46,11 @@ const getAllCustomers = async (
           name: { contains: search },
           is_active: true,
         };
+      } else if (searchType === "phone") {
+        const cleanSearch = search.replace(/\D/g, "");
+        where = {
+          phone_number: { contains: cleanSearch },
+        };
       } else {
         where = {
           OR: [

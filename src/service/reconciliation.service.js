@@ -572,8 +572,10 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
             deal: {
               include: {
                 customer: { select: { name: true } },
-                buyCurrency: { select: { code: true } },
-                sellCurrency: { select: { code: true } }
+                buyCurrency: { select: { id: true, code: true, name: true } },
+                sellCurrency: { select: { id: true, code: true, name: true } },
+                receivedItems: true,
+                paidItems: true
               }
             }
           }
@@ -607,8 +609,21 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     for (const dealRec of rec.deals) {
       const deal = dealRec.deal;
 
-      const foreignAmount = Number(deal.amount || 0);
-      const tzsAmount = Number(deal.amount_to_be_paid || 0);
+      let foreignAmount = Number(deal.amount || 0);
+      let tzsAmount = Number(deal.amount_to_be_paid || 0);
+
+      if (deal.status === "Pending") {
+        const totalReceived = (deal.receivedItems || []).reduce((sum, i) => sum + Number(i.total || 0), 0);
+        const totalPaid = (deal.paidItems || []).reduce((sum, i) => sum + Number(i.total || 0), 0);
+
+        if (deal.deal_type === "buy") {
+          foreignAmount = totalReceived;
+          tzsAmount = totalPaid;
+        } else {
+          foreignAmount = totalPaid;
+          tzsAmount = totalReceived;
+        }
+      }
 
       const buyCode = deal.buyCurrency?.code;
       const sellCode = deal.sellCurrency?.code;

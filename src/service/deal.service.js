@@ -148,8 +148,8 @@ const getAllDeals = async (
     }
 
     // Role-based filtering
-    if (roleName === "Maker") {
-      where.created_by = userId;
+    if (roleName !== "Admin" && userId) {
+      where.created_by = Number(userId);
     }
 
     // Status Filter
@@ -237,38 +237,112 @@ const getAllDeals = async (
       reconciliationWhere.created_by = Number(userId);
     }
 
-    const lastReconciliation = await getdb.reconciliation.findFirst({
+    const reconciliations = await getdb.reconciliation.findMany({
       where: reconciliationWhere,
       orderBy: { created_at: "desc" },
+      take: 2,
       include: {
-        openingEntries: {
-          include: { currency: { select: { code: true } } },
-        },
-        closingEntries: {
-          include: { currency: { select: { code: true } } },
-        },
-      },
+        openingEntries: { include: { currency: { select: { code: true } } } },
+        closingEntries: { include: { currency: { select: { code: true } } } },
+        deals: {
+          include: {
+            deal: {
+              include: {
+                receivedItems: { include: { currency: { select: { code: true } } } },
+                paidItems: { include: { currency: { select: { code: true } } } }
+              }
+            }
+          }
+        }
+      }
     });
+
+    let todayRecon = null;
+    let yesterdayRecon = null;
+
+    if (reconciliations.length > 0) {
+      const firstDate = new Date(reconciliations[0].created_at);
+      if (firstDate >= startToday && firstDate <= endToday) {
+        todayRecon = reconciliations[0];
+        yesterdayRecon = reconciliations[1];
+      } else {
+        yesterdayRecon = reconciliations[0];
+      }
+    }
 
     let openingUSD = 0;
     let openingTZS = 0;
 
-    if (lastReconciliation) {
-      const reconDate = new Date(lastReconciliation.created_at);
+    if (yesterdayRecon) {
+      if (yesterdayRecon.status === "Tallied") {
+        if (todayRecon) {
+          todayRecon.openingEntries.forEach(e => {
+            if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
+            if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+          });
+        }
+      } else if (yesterdayRecon.status === "Excess") {
+        yesterdayRecon.closingEntries.forEach(e => {
+          if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
+          if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+        });
+        if (todayRecon) {
+          todayRecon.openingEntries.forEach(e => {
+            if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
+            if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+          });
+        }
+      } else if (yesterdayRecon.status === "Short") {
+        // Calculate Yesterday's Shortage
+        let yExpectedUSD = 0, yExpectedTZS = 0;
+        let yActualUSD = 0, yActualTZS = 0;
 
-      const isTodayReconciliation =
-        reconDate >= startToday && reconDate <= endToday;
+        yesterdayRecon.openingEntries.forEach(e => {
+          if (e.currency.code === "USD") yExpectedUSD += Number(e.amount || 0);
+          if (e.currency.code === "TZS") yExpectedTZS += Number(e.amount || 0);
+        });
 
-      const entriesToUse = isTodayReconciliation
-        ? lastReconciliation.openingEntries
-        : lastReconciliation.closingEntries;
+        yesterdayRecon.deals.forEach(rd => {
+          const d = rd.deal;
+          if (!d) return;
+          (d.receivedItems || []).forEach(item => {
+            if (item.currency.code === "USD") yExpectedUSD += Number(item.total || 0);
+            if (item.currency.code === "TZS") yExpectedTZS += Number(item.total || 0);
+          });
+          (d.paidItems || []).forEach(item => {
+            if (item.currency.code === "USD") yExpectedUSD -= Number(item.total || 0);
+            if (item.currency.code === "TZS") yExpectedTZS -= Number(item.total || 0);
+          });
+        });
 
-      entriesToUse.forEach((entry) => {
-        if (entry.currency.code === "USD")
-          openingUSD += Number(entry.amount || 0);
+        yesterdayRecon.closingEntries.forEach(e => {
+          if (e.currency.code === "USD") yActualUSD += Number(e.amount || 0);
+          if (e.currency.code === "TZS") yActualTZS += Number(e.amount || 0);
+        });
 
-        if (entry.currency.code === "TZS")
-          openingTZS += Number(entry.amount || 0);
+        const shortUSD = Math.max(0, yExpectedUSD - yActualUSD);
+        const shortTZS = Math.max(0, yExpectedTZS - yActualTZS);
+
+        if (todayRecon) {
+          todayRecon.openingEntries.forEach(e => {
+            if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
+            if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+          });
+        }
+        openingUSD -= shortUSD;
+        openingTZS -= shortTZS;
+      } else {
+        // Fallback for In_Progress or other states
+        const entries = todayRecon ? todayRecon.openingEntries : yesterdayRecon.closingEntries;
+        entries.forEach(e => {
+          if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
+          if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+        });
+      }
+    } else if (todayRecon) {
+      todayRecon.openingEntries.forEach(e => {
+        if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
+        if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
       });
     }
 

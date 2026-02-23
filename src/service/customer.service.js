@@ -106,14 +106,21 @@ const getAllCustomers = async (
       let debitTZS = 0;
 
       for (const deal of customer.deals) {
-        const rate = rateMap[deal.sell_currency_id];
+        if (deal.status !== "Pending") continue;
 
-        const valueTZS = Number(deal.amount_to_be_paid) * rate;
+        const rate = rateMap[deal.sell_currency_id] || 1;
+        const expectedTZS = Number(deal.amount_to_be_paid) * rate;
+        const settledTZS = deal.deal_type === "sell"
+          ? (deal.receivedItems || []).reduce((sum, item) => sum + Number(item.total || 0), 0)
+          : (deal.paidItems || []).reduce((sum, item) => sum + Number(item.total || 0), 0);
 
+        const pendingValue = expectedTZS - settledTZS;
+
+        if (pendingValue <= 0) continue; 
         if (deal.deal_type === "sell") {
-          creditTZS += valueTZS;
-        } else {
-          debitTZS += valueTZS;
+          debitTZS += pendingValue;
+        } else if (deal.deal_type === "buy") {
+          creditTZS += pendingValue;
         }
       }
 

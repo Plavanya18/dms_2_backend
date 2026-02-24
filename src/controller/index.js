@@ -4,3 +4,4 @@ module.exports.currencyController = require('./currency.controller');
 module.exports.dealController = require('./deal.controller');
 module.exports.reconciliationController = require('./reconciliation.controller');
 module.exports.customerController = require('./customer.controller');
+module.exports.currencyPairController = require('./currencyPair.controller');

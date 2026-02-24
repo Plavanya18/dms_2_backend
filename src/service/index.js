@@ -4,3 +4,4 @@ module.exports.currencyService = require('./currency.service');
 module.exports.dealService = require('./deal.service');
 module.exports.reconciliationService = require('./reconciliation.service');
 module.exports.customerService = require('./customer.service');
+module.exports.currencyPairService = require('./currencyPair.service');

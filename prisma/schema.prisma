@@ -67,6 +67,7 @@ model User {
   dealsCreated    Deal[]           @relation("DealCreatedBy")
   dealsActioned   Deal[]           @relation("DealActionBy")
   reconciliations Reconciliation[]
+  expenses        Expense[]
 
   @@map("user")
 }
@@ -118,6 +119,7 @@ model Currency {
   closingReconciliations ReconciliationClosing[]
   baseRates  CurrencyPairRate[] @relation("BaseCurrency")
   quoteRates CurrencyPairRate[] @relation("QuoteCurrency")
+  expenses   Expense[]
 
   @@map("currency")
 }
@@ -286,4 +288,21 @@ model ReconciliationDeal {
   deal           Deal           @relation(fields: [deal_id], references: [id])
 
   @@map("reconciliationdeal")
+}
+
+model Expense {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @default(now())
+  category    String
+  description String   @db.Text
+  amount      Decimal
+  currency_id Int      @default(1)
+  created_by  Int
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  createdBy   User     @relation(fields: [created_by], references: [id])
+  currency    Currency @relation(fields: [currency_id], references: [id])
+
+  @@map("expense")
 }

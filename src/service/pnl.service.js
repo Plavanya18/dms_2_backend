@@ -26,10 +26,19 @@ const getPnLOverview = async () => {
             },
         });
 
-        // In a production environment, we'd reuse the heavy lifting from reconciliation service
-        // For now we calculate the aggregate across all records
+        const totalGrossPnL = reconciliations.reduce((sum, r) => sum + Number(r.profitLoss || 0), 0);
+
+        // Fetch total expenses
+        const totalExpenses = await getdb.expense.aggregate({
+            _sum: { amount: true }
+        });
+
+        const expenseAmount = Number(totalExpenses._sum.amount || 0);
+
         return {
-            totalPnL: reconciliations.reduce((sum, r) => sum + Number(r.profitLoss || 0), 0),
+            totalGrossPnL,
+            totalExpenses: expenseAmount,
+            totalNetPnL: totalGrossPnL - expenseAmount,
             count: reconciliations.length,
             lastUpdated: reconciliations.length > 0 ? reconciliations[0].updated_at : null
         };

@@ -155,6 +155,20 @@ const startReconciliation = async (req, res) => {
   }
 };
 
+const getCurrentDayReconciliation = async (req, res) => {
+  try {
+    const userId = req.user;
+    const rec = await reconciliationService.getCurrentDayReconciliation(userId);
+    return res.json({
+      message: "Current day reconciliation fetched successfully",
+      data: rec
+    });
+  } catch (err) {
+    console.error("Error fetching current day reconciliation:", err);
+    return res.status(500).json({ message: err.message || "Internal server error" });
+  }
+};
+
 module.exports = {
   createReconciliation,
   getAllReconciliations,
@@ -162,4 +176,5 @@ module.exports = {
   getReconciliationById,
   updateReconciliation,
   startReconciliation,
+  getCurrentDayReconciliation,
 };

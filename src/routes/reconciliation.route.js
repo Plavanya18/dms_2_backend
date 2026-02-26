@@ -4,6 +4,7 @@ const reconciliationController = require("../controller/reconciliation.controlle
 
 router.post("/", reconciliationController.createReconciliation);
 router.get("/", reconciliationController.getAllReconciliations);
+router.get("/current", reconciliationController.getCurrentDayReconciliation);
 router.get("/alerts", reconciliationController.fetchReconciliationAlerts);
 router.get("/:id", reconciliationController.getReconciliationById);
 router.patch("/:id", reconciliationController.updateReconciliation);

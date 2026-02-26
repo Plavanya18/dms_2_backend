@@ -6,8 +6,80 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const os = require("os");
 
+const getCurrentDayReconciliation = async (userId) => {
+  try {
+    const now = new Date();
+    const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+
+    const reconciliation = await getdb.reconciliation.findFirst({
+      where: {
+        created_by: userId,
+        created_at: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: { include: { deal: true } },
+      },
+    });
+
+    return reconciliation;
+  } catch (error) {
+    logger.error("Failed to fetch current day reconciliation:", error);
+    throw error;
+  }
+};
+
+const mapDailyDeals = async (reconciliationId, userId) => {
+  try {
+    const reconciliation = await getdb.reconciliation.findUnique({
+      where: { id: Number(reconciliationId) },
+    });
+
+    if (!reconciliation) throw new Error("Reconciliation not found");
+
+    const startOfDay = new Date(reconciliation.created_at);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(reconciliation.created_at);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const deals = await getdb.deal.findMany({
+      where: {
+        created_at: { gte: startOfDay, lte: endOfDay },
+        reconciliations: { none: {} },
+        created_by: userId,
+      },
+    });
+
+    if (deals.length > 0) {
+      await getdb.reconciliationDeal.createMany({
+        data: deals.map((deal) => ({
+          reconciliation_id: reconciliation.id,
+          deal_id: deal.id,
+        })),
+      });
+    }
+
+    return deals.length;
+  } catch (error) {
+    logger.error("Failed to map daily deals:", error);
+    throw error;
+  }
+};
+
 const createReconciliation = async (data, userId) => {
   try {
+    // Check if reconciliation already exists for today
+    const existing = await getCurrentDayReconciliation(userId);
+    if (existing) {
+      throw new Error("A reconciliation already exists for today.");
+    }
+
     if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
       throw new Error("Opening entries are required to create a reconciliation.");
     }
@@ -51,13 +123,6 @@ const createReconciliation = async (data, userId) => {
               return { note: noteText };
             }),
           },
-        }),
-        ...(Array.isArray(data.deals) && data.deals.length > 0 && {
-          deals: {
-            create: data.deals.map((d) => ({
-              deal_id: Number(d.deal_id || d.id)
-            }))
-          }
         }),
       },
       include: {
@@ -1104,14 +1169,6 @@ const updateReconciliation = async (id, data, userId) => {
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
           notes: { create: data.notes.map(n => ({ note: n })) },
         }),
-        ...(Array.isArray(data.deals) && data.deals.length > 0 && {
-          deals: {
-            deleteMany: {},
-            create: data.deals.map((d) => ({
-              deal_id: Number(d.deal_id || d.id)
-            }))
-          }
-        }),
       },
       include: {
         openingEntries: { include: { currency: true } },
@@ -1120,6 +1177,13 @@ const updateReconciliation = async (id, data, userId) => {
         deals: { include: { deal: true } },
       },
     });
+
+    // If closing entries were added, trigger auto-mapping of deals and update status
+    if (hasClosing) {
+      await mapDailyDeals(id, userId);
+      // We call startReconciliation (re-run logic) to get final Tally/Short/Excess status
+      return await startReconciliation(id, userId);
+    }
 
     return updatedReconciliation;
   } catch (error) {
@@ -1135,4 +1199,5 @@ module.exports = {
   getReconciliationById,
   updateReconciliation,
   startReconciliation,
+  getCurrentDayReconciliation,
 };

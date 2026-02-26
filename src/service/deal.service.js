@@ -113,40 +113,6 @@ const createDeal = async (data, userId) => {
 
     logger.info(`Deal created: ${newDeal.deal_number}`);
 
-    // Auto-map to current reconciliation if it exists
-    try {
-      const startToday = new Date();
-      startToday.setHours(0, 0, 0, 0);
-      const endToday = new Date();
-      endToday.setHours(23, 59, 59, 999);
-
-      const reconciliation = await getdb.reconciliation.findFirst({
-        where: {
-          created_by: userId,
-          created_at: {
-            gte: startToday,
-            lte: endToday,
-          },
-        },
-      });
-
-      if (reconciliation) {
-        await getdb.reconciliationDeal.create({
-          data: {
-            reconciliation_id: reconciliation.id,
-            deal_id: newDeal.id,
-          },
-        });
-        logger.info(`Deal ${newDeal.deal_number} auto-mapped to reconciliation ${reconciliation.id}`);
-
-        // Reset if finalized
-        await resetReconciliationStatus(userId);
-      }
-    } catch (autoMapError) {
-      logger.error("Failed to auto-map deal to reconciliation:", autoMapError);
-      // We don't throw here to avoid failing deal creation if auto-mapping fails
-    }
-
     return newDeal;
   } catch (error) {
     logger.error("Failed to create deal:", error);
@@ -664,9 +630,6 @@ const updateDealStatus = async (id, status, reason = null, userId) => {
 
     logger.info(`Deal status updated: ${updated.id} ${updated.deal_number}`);
 
-    // Reset reconciliation status due to change in deal balance
-    await resetReconciliationStatus(userId);
-
     return updated;
 
   } catch (error) {
@@ -763,9 +726,6 @@ const updateDeal = async (id, data, userId) => {
 
     logger.info(`Deal updated: ${updatedDeal.deal_number}`);
 
-    // Reset reconciliation status due to change in deal data
-    await resetReconciliationStatus(userId);
-
     return updatedDeal;
 
   } catch (error) {
@@ -774,41 +734,12 @@ const updateDeal = async (id, data, userId) => {
   }
 };
 
-const resetReconciliationStatus = async (userId) => {
-  try {
-    const startToday = new Date();
-    startToday.setHours(0, 0, 0, 0);
-    const endToday = new Date();
-    endToday.setHours(23, 59, 59, 999);
-
-    const reconciliation = await getdb.reconciliation.findFirst({
-      where: {
-        created_by: userId,
-        created_at: {
-          gte: startToday,
-          lte: endToday,
-        },
-      },
-    });
-
-    if (reconciliation && reconciliation.status !== "In_Progress") {
-      await getdb.reconciliation.update({
-        where: { id: reconciliation.id },
-        data: { status: "In_Progress", updated_at: new Date() },
-      });
-      logger.info(`Reconciliation ${reconciliation.id} status reset to In_Progress due to deal change`);
-    }
-  } catch (error) {
-    logger.error("Failed to reset reconciliation status:", error);
-  }
-};
 
 module.exports = {
   createDeal,
   getAllDeals,
   getDealById,
   updateDealStatus,
-  updateDeal,
-  resetReconciliationStatus
+  updateDeal
 };
 

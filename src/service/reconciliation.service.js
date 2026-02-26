@@ -401,23 +401,22 @@ const getAllReconciliations = async ({
       });
       const totalClosingValue = closingUSD * valuationRate + closingTZS;
 
-      // 3. Profit/Loss Logic (Section A vs Section B)
-      const totalSalesValue = totalTzsPaid + (totalForeignSold * valuationRate);
-      const totalPurchaseValue = totalTzsReceived + (totalForeignBought * valuationRate);
+      const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate);
+      const totalValueIn = totalTzsReceived + (totalForeignBought * valuationRate);
 
-      const totalA = totalSalesValue + totalClosingValue;
-      const totalB = totalPurchaseValue + totalOpeningValue;
-      const profitLoss = totalA - totalB;
+      const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
 
       return {
         ...rec,
-        opening_total: totalOpeningValue,
-        closing_total: totalClosingValue,
+        totalTzsPaid,
+        totalTzsReceived,
+        totalForeignBought,
+        totalForeignSold,
         total_transactions: rec.deals.length,
+        totalOpeningValue,
+        totalClosingValue,
         profitLoss,
         valuationRate,
-        totalA,
-        totalB
       };
     });
 
@@ -1014,24 +1013,21 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     const totalOpeningValue = openingUSD * valuationRate + openingTZS;
     const totalClosingValue = closingUSD * valuationRate + closingTZS;
 
-    const totalSalesValue = totalTzsPaid + (totalForeignSold * valuationRate);
-    const totalPurchaseValue = totalTzsReceived + (totalForeignBought * valuationRate);
+    const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate);
+    const totalValueIn = totalTzsReceived + (totalForeignBought * valuationRate);
 
-    const totalA = totalSalesValue + totalClosingValue;
+    const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
 
-    const totalB = totalPurchaseValue + totalOpeningValue;
-
-    const profitLoss = totalA - totalB;
-
-    console.log("📊 Section A (Sales + Closing):", totalA);
-    console.log("📊 Section B (Opening + Purchases):", totalB);
-    console.log("📉 RECONCILIATION DISCREPANCY:", profitLoss);
+    console.log("📊 Opening Value (TZS):", totalOpeningValue);
+    console.log("📊 Closing Value (TZS):", totalClosingValue);
+    console.log("📤 Total Value Out (TZS Paid + Foreign Sold):", totalValueOut);
+    console.log("📥 Total Value In (TZS Received + Foreign Bought):", totalValueIn);
+    console.log("📉 RECONCILIATION VARIANCE (P/L):", profitLoss);
 
     // Fields used in list view, now calculated with valued amounts
     const opening_total = totalOpeningValue;
     const closing_total = totalClosingValue;
     const total_transactions = rec.deals.length;
-    const difference = opening_total - closing_total;
 
     return {
       ...rec,
@@ -1046,13 +1042,10 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
       currencyStats,
       totalOpeningValue,
       totalClosingValue,
-      totalA,
-      totalB,
       profitLoss,
       opening_total,
       closing_total,
       total_transactions,
-      difference
     };
   } catch (error) {
     logger.error("❌ Failed to fetch reconciliation by ID:", error);

@@ -7,6 +7,7 @@ const currencyRoute = require('./currency.route');
 const dealRoute = require('./deal.route');
 const reconciliationRoute = require('./reconciliation.route');
 const customerRoute = require('./customer.route');
+const pnlRoute = require('./pnl.route');
 const currencyPairRoute = require('./currencyPair.route');
 const router = express.Router();
 
@@ -38,6 +39,10 @@ const defaultRoutes = [
   {
     path: '/api/currency-pair',
     route: currencyPairRoute
+  },
+  {
+    path: '/api/pnl',
+    route: pnlRoute
   }
 ];
 

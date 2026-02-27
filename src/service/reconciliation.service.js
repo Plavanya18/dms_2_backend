@@ -76,17 +76,21 @@ const createReconciliation = async (data, userId) => {
   try {
     // Check if reconciliation already exists for today
     const existing = await getCurrentDayReconciliation(userId);
-    if (existing) {
-      throw new Error("A reconciliation already exists for today.");
-    }
 
-    if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
-      throw new Error("Opening entries are required to create a reconciliation.");
+    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
+    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+
+    if (!hasOpening && !hasClosing && !data.notes) {
+      throw new Error("No data provided to capture.");
     }
 
     const now = new Date();
-    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
-    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+
+    if (existing) {
+      // If it exists, we behave like an update for the new entries provided
+      // This supports the "use Create API for first time capture" even if recon exists
+      return await updateReconciliation(existing.id, data, userId);
+    }
 
     const reconciliationStatus = hasClosing ? (data.status || "In_Progress") : "In_Progress";
 
@@ -96,21 +100,23 @@ const createReconciliation = async (data, userId) => {
         created_by: userId,
         created_at: now,
         updated_at: now,
-        openingEntries: {
-          create: data.openingEntries.map((entry) => ({
-            denomination: entry.denomination || entry.amount || 0,
-            quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
-            amount: entry.amount,
-            exchange_rate: entry.exchange_rate || 1.0,
-            currency_id: entry.currency_id,
-          })),
-        },
+        ...(hasOpening && {
+          openingEntries: {
+            create: data.openingEntries.map((entry) => ({
+              denomination: Math.round(Number(entry.denomination || entry.amount || 0)),
+              quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
+              amount: Math.round(Number(entry.amount)),
+              exchange_rate: entry.exchange_rate || 1.0,
+              currency_id: entry.currency_id,
+            })),
+          },
+        }),
         ...(hasClosing && {
           closingEntries: {
             create: data.closingEntries.map((entry) => ({
-              denomination: entry.denomination || entry.amount || 0,
+              denomination: Math.round(Number(entry.denomination || entry.amount || 0)),
               quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
-              amount: entry.amount,
+              amount: Math.round(Number(entry.amount)),
               exchange_rate: entry.exchange_rate || 1.0,
               currency_id: entry.currency_id,
             })),

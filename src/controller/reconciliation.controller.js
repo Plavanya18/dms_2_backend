@@ -6,8 +6,11 @@ const createReconciliation = async (req, res) => {
     const userId = req.user;
     const data = req.body;
 
-    if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
-      return res.status(400).json({ message: "Opening entries are required." });
+    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
+    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+
+    if (!hasOpening && !hasClosing) {
+      return res.status(400).json({ message: "Either opening or closing entries are required." });
     }
 
     const rec = await reconciliationService.createReconciliation(data, userId);

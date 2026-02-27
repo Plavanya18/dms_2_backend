@@ -11,6 +11,7 @@ const createExpense = async (data, userId) => {
                 category: data.category,
                 description: data.description,
                 amount: data.amount,
+                rate: data.rate,
                 currency_id: data.currency_id ? Number(data.currency_id) : 1,
                 date: data.date ? new Date(data.date) : new Date(),
                 created_by: userId,
@@ -77,6 +78,7 @@ const updateExpense = async (id, data, userId) => {
             category: data.category,
             description: data.description,
             amount: data.amount,
+            rate: data.rate,
             currency_id: data.currency_id ? Number(data.currency_id) : undefined,
             date: data.date ? new Date(data.date) : undefined,
         };

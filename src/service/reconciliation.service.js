@@ -181,8 +181,17 @@ const startReconciliation = async (id, userId) => {
       });
     }
 
+    return await calculateAndSetReconciliationStatus(reconciliation.id, userId);
+  } catch (error) {
+    logger.error("Failed to start reconciliation:", error);
+    throw error;
+  }
+};
+
+const calculateAndSetReconciliationStatus = async (id, userId) => {
+  try {
     const updatedReconciliation = await getdb.reconciliation.findUnique({
-      where: { id: reconciliation.id },
+      where: { id: Number(id) },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
@@ -196,6 +205,10 @@ const startReconciliation = async (id, userId) => {
         },
       },
     });
+
+    if (!updatedReconciliation) {
+      throw new Error("Reconciliation not found");
+    }
 
     const currencyTotals = {};
 
@@ -274,14 +287,14 @@ const startReconciliation = async (id, userId) => {
     }
 
     await getdb.reconciliation.update({
-      where: { id: reconciliation.id },
+      where: { id: updatedReconciliation.id },
       data: { status: finalStatus, updated_at: new Date() }
     });
 
-    logger.info(`Reconciliation ${id} started. Final status: ${finalStatus}. ${deals.length} deals associated.`);
+    logger.info(`Reconciliation status recalculated for ID ${id}. Final status: ${finalStatus}.`);
 
     return await getdb.reconciliation.findUnique({
-      where: { id: reconciliation.id },
+      where: { id: updatedReconciliation.id },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
@@ -290,7 +303,7 @@ const startReconciliation = async (id, userId) => {
       },
     });
   } catch (error) {
-    logger.error("Failed to start reconciliation:", error);
+    logger.error("Failed to recalculate reconciliation status:", error);
     throw error;
   }
 };
@@ -1200,4 +1213,5 @@ module.exports = {
   updateReconciliation,
   startReconciliation,
   getCurrentDayReconciliation,
+  calculateAndSetReconciliationStatus,
 };

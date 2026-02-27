@@ -113,6 +113,40 @@ const createDeal = async (data, userId) => {
 
     logger.info(`Deal created: ${newDeal.deal_number}`);
 
+    // Map to today's reconciliation if it exists
+    try {
+      const now = new Date();
+      const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+
+      const reconciliation = await getdb.reconciliation.findFirst({
+        where: {
+          created_by: userId,
+          created_at: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+      });
+
+      if (reconciliation) {
+        await getdb.reconciliationDeal.create({
+          data: {
+            reconciliation_id: reconciliation.id,
+            deal_id: newDeal.id,
+          },
+        });
+        logger.info(`Automatically mapped deal ${newDeal.deal_number} to reconciliation ${reconciliation.id}`);
+
+        // Automatically update the status (Tallied/Excess/Short)
+        const { calculateAndSetReconciliationStatus } = require("./reconciliation.service");
+        await calculateAndSetReconciliationStatus(reconciliation.id, userId);
+      }
+    } catch (mappingError) {
+      logger.error("Failed to automatically map deal to reconciliation:", mappingError);
+      // We don't throw here to avoid failing deal creation if mapping fails
+    }
+
     return newDeal;
   } catch (error) {
     logger.error("Failed to create deal:", error);

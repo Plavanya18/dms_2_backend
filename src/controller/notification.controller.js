@@ -9,7 +9,7 @@ const getNotifications = async (req, res) => {
         // Auto-sync before fetching
         await notificationService.syncNotifications(userId);
 
-        const notifications = await notificationService.getNotifications(userId, filter);
+        const notifications = await notificationService.getNotifications(userId, req.roleName, filter);
         return res.json({
             success: true,
             data: notifications

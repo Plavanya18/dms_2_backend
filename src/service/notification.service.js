@@ -13,9 +13,14 @@ const syncNotifications = async (userId) => {
         const reconciliations = await getdb.reconciliation.findMany({
             where: {
                 status: { in: ["Short", "Excess"] },
-                deleted_at: null, // Assuming soft delete might exist
             },
-            select: { id: true, status: true, created_at: true, created_by: true }
+            select: {
+                id: true,
+                status: true,
+                created_at: true,
+                created_by: true,
+                createdBy: { select: { full_name: true } }
+            }
         });
 
         for (const recon of reconciliations) {
@@ -32,7 +37,7 @@ const syncNotifications = async (userId) => {
                     data: {
                         user_id: recon.created_by,
                         title: "Reconciliation Alert",
-                        message: `Reconciliation #${recon.id} is ${recon.status}. Needs review.`,
+                        message: `Reconciliation #${recon.id} (${recon.createdBy?.full_name || "Unknown"}) is ${recon.status}. Needs review.`,
                         alert_type: "RECONCILIATION",
                         reference_id: recon.id,
                     }
@@ -46,7 +51,13 @@ const syncNotifications = async (userId) => {
                 status: "Pending",
                 deleted_at: null,
             },
-            select: { id: true, deal_number: true, created_at: true, created_by: true }
+            select: {
+                id: true,
+                deal_number: true,
+                created_at: true,
+                created_by: true,
+                createdBy: { select: { full_name: true } }
+            }
         });
 
         for (const deal of pendingDeals) {
@@ -63,7 +74,7 @@ const syncNotifications = async (userId) => {
                     data: {
                         user_id: deal.created_by,
                         title: "Pending Deal",
-                        message: `Deal #${deal.deal_number} is still pending.`,
+                        message: `Deal #${deal.deal_number} (${deal.createdBy?.full_name || "Unknown"}) is still pending.`,
                         alert_type: "PENDING_DEAL",
                         reference_id: deal.id,
                     }
@@ -75,16 +86,20 @@ const syncNotifications = async (userId) => {
     }
 };
 
-const getNotifications = async (userId, filter = "all") => {
+const getNotifications = async (userId, roleName, filter = "all") => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
     let where = {
-        user_id: userId,
         is_deleted: false
     };
+
+    // If not admin, only show own notifications
+    if (roleName !== "Admin") {
+        where.user_id = userId;
+    }
 
     switch (filter) {
         case "new":
@@ -108,6 +123,11 @@ const getNotifications = async (userId, filter = "all") => {
 
     return await getdb.notification.findMany({
         where,
+        include: {
+            user: {
+                select: { full_name: true }
+            }
+        },
         orderBy: { created_at: "desc" }
     });
 };

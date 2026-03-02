@@ -27,7 +27,7 @@ const upsertOpenSetRate = async (data) => {
             },
         });
 
-        logger.info(`OpenSetRate record upserted for currency ${record.currency.code} on date ${targetDate.toISOString().split('T')[0]}`);
+        logger.info(`OpenSetRate upserted for ${record.currency.code} on ${targetDate.toISOString().split('T')[0]}`);
         return record;
     } catch (error) {
         logger.error("Failed to upsert OpenSetRate:", error);
@@ -37,20 +37,15 @@ const upsertOpenSetRate = async (data) => {
 
 const getOpenSetRates = async (date) => {
     try {
-        // Use only the date part to avoid timezone shifts
         const dateString = new Date(date).toISOString().split('T')[0];
         const targetDate = new Date(dateString);
 
         const rates = await getdb.openSetRate.findMany({
-            where: {
-                date: targetDate,
-            },
-            include: {
-                currency: true,
-            },
+            where: { date: targetDate },
+            include: { currency: true },
         });
 
-        // 1st: Try previous TZS set rate
+        // 1st: Previous TZS manual rate
         let previousRateRecord = await getdb.openSetRate.findFirst({
             where: {
                 date: { lt: targetDate },
@@ -59,7 +54,7 @@ const getOpenSetRates = async (date) => {
             orderBy: { date: "desc" }
         });
 
-        // 2nd: Any previous set rate regardless of currency
+        // 2nd: Any previous manual rate
         if (!previousRateRecord) {
             previousRateRecord = await getdb.openSetRate.findFirst({
                 where: { date: { lt: targetDate } },
@@ -69,49 +64,43 @@ const getOpenSetRates = async (date) => {
 
         let previousRate = previousRateRecord ? Number(previousRateRecord.set_rate) : 0;
 
+        // 3rd: Average computed from yesterday's USD deals
         if (!previousRate) {
             const yesterday = new Date(targetDate);
             yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStart = new Date(yesterday);
-            yesterdayStart.setHours(0, 0, 0, 0);
-            const yesterdayEnd = new Date(yesterday);
-            yesterdayEnd.setHours(23, 59, 59, 999);
+            const yesterdayStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0, 0);
+            const yesterdayEnd = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
 
             const yesterdayDeals = await getdb.deal.findMany({
                 where: {
                     created_at: { gte: yesterdayStart, lte: yesterdayEnd },
-                    OR: [
-                        { buyCurrency: { code: "TZS" } },
-                        { sellCurrency: { code: "TZS" } }
-                    ]
                 },
                 select: {
                     amount: true,
                     amount_to_be_paid: true,
                     exchange_rate: true,
-                    created_at: true
+                    created_at: true,
+                    buyCurrency: { select: { code: true } },
+                    sellCurrency: { select: { code: true } },
                 }
             });
 
             if (yesterdayDeals.length > 0) {
                 let sumRates = 0, count = 0;
                 yesterdayDeals.forEach(deal => {
+                    const buyCode = deal.buyCurrency?.code;
+                    const sellCode = deal.sellCurrency?.code;
+                    if (buyCode !== "USD" && sellCode !== "USD") return;
                     const amount = Number(deal.amount || 0);
-                    const amountPaid = Number(deal.amount_to_be_paid || 0);
-                    const effectiveRate = amount > 0 ? amountPaid / amount : Number(deal.exchange_rate || 0);
-                    if (effectiveRate > 0) {
-                        sumRates += effectiveRate;
-                        count++;
-                    }
+                    const amtPaid = Number(deal.amount_to_be_paid || 0);
+                    const effective = amount > 0 ? amtPaid / amount : Number(deal.exchange_rate || 0);
+                    if (effective > 0) { sumRates += effective; count++; }
                 });
                 if (count > 0) previousRate = Math.round(sumRates / count);
             }
         }
 
-        return {
-            rates,
-            previousRate
-        };
+        return { rates, previousRate };
     } catch (error) {
         logger.error("Failed to fetch OpenSetRates:", error);
         throw error;

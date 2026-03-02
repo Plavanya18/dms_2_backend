@@ -420,7 +420,31 @@ const getAllReconciliations = async ({
       take: limit,
     });
 
+    const reconciliationDates = [...new Set(reconciliations.map(r => {
+      const d = new Date(r.created_at);
+      d.setHours(0, 0, 0, 0);
+      return d.toISOString();
+    }))];
+
+    const openSetRates = await getdb.openSetRate.findMany({
+      where: {
+        date: { in: reconciliationDates.map(d => new Date(d)) }
+      },
+      include: { currency: true }
+    });
+
+    const ratesByDate = openSetRates.reduce((acc, rate) => {
+      const dateKey = new Date(rate.date).toISOString();
+      if (!acc[dateKey]) acc[dateKey] = {};
+      acc[dateKey][rate.currency.code] = rate;
+      return acc;
+    }, {});
+
     const enhancedData = reconciliations.map((rec) => {
+      const d = new Date(rec.created_at);
+      d.setHours(0, 0, 0, 0);
+      const dateKey = d.toISOString();
+
       // 1. Aggregation variables for this reconciliation
       let buyUsdForeign = 0;
       let buyUsdTzs = 0;
@@ -470,23 +494,26 @@ const getAllReconciliations = async ({
 
       const valuationRate = buyUsdForeign > 0 ? buyUsdTzs / buyUsdForeign : 0;
 
+      const usdRates = ratesByDate[dateKey]?.["USD"];
+      const effectiveSetRate = usdRates ? Number(usdRates.set_rate) : valuationRate;
+
       // 2. Valued Balances
       let openingUSD = 0, openingTZS = 0;
       rec.openingEntries.forEach(o => {
         if (o.currency.code === "USD") openingUSD += Number(o.amount || 0);
         else if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
-      const totalOpeningValue = openingUSD * valuationRate + openingTZS;
+      const totalOpeningValue = openingUSD * effectiveSetRate + openingTZS;
 
       let closingUSD = 0, closingTZS = 0;
       rec.closingEntries.forEach(c => {
         if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
         else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
-      const totalClosingValue = closingUSD * valuationRate + closingTZS;
+      const totalClosingValue = closingUSD * effectiveSetRate + closingTZS;
 
-      const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate);
-      const totalValueIn = totalTzsReceived + (totalForeignBought * valuationRate);
+      const totalValueOut = totalTzsPaid + (totalForeignSold * effectiveSetRate);
+      const totalValueIn = totalTzsReceived + (totalForeignBought * effectiveSetRate);
 
       const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
 
@@ -501,6 +528,8 @@ const getAllReconciliations = async ({
         totalClosingValue,
         profitLoss,
         valuationRate,
+        setRate: effectiveSetRate,
+        hasCustomRates: !!usdRates
       };
     });
 
@@ -514,7 +543,34 @@ const getAllReconciliations = async ({
       return { filePath };
     }
 
-    return { data: enhancedData, total };
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const todayRatesData = await getdb.openSetRate.findMany({
+      where: { date: todayDate },
+      include: { currency: true }
+    });
+
+    const todayRates = todayRatesData.reduce((acc, rate) => {
+      acc[rate.currency.code] = {
+        setRate: Number(rate.set_rate)
+      };
+      return acc;
+    }, {});
+
+    const prevUsdRate = await getdb.openSetRate.findFirst({
+      where: {
+        date: { lt: todayDate },
+        currency: { code: "USD" }
+      },
+      orderBy: { date: "desc" }
+    });
+
+    return {
+      data: enhancedData,
+      total,
+      todayRates,
+      previousRate: prevUsdRate ? Number(prevUsdRate.set_rate) : 0
+    };
   } catch (error) {
     logger.error("Failed to fetch reconciliations:", error);
     throw error;

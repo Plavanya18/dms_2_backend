@@ -7,3 +7,4 @@ module.exports.customerController = require('./customer.controller');
 module.exports.currencyPairController = require('./currencyPair.controller');
 module.exports.pnlController = require('./pnl.controller');
 module.exports.expenseController = require('./expense.controller');
+module.exports.openSetRateController = require('./openSetRate.controller');

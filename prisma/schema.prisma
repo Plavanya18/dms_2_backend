@@ -83,8 +83,22 @@ model Currency {
   expenses               Expense[]
   closingReconciliations ReconciliationClosing[]
   openingReconciliations ReconciliationOpening[]
+  openSetRates           OpenSetRate[]
 
   @@map("currency")
+}
+
+model OpenSetRate {
+  id          Int      @id @default(autoincrement())
+  currency_id Int
+  set_rate    Decimal
+  date        DateTime @db.Date
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  currency    Currency @relation(fields: [currency_id], references: [id])
+
+  @@unique([currency_id, date])
+  @@map("opensetrate")
 }
 
 model CurrencyPairRate {

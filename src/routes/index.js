@@ -11,6 +11,7 @@ const pnlRoute = require('./pnl.route');
 const expenseRoute = require('./expense.route');
 const currencyPairRoute = require('./currencyPair.route');
 const openSetRateRoute = require('./openSetRate.route');
+const notificationRoute = require('./notification.route');
 const router = express.Router();
 
 const defaultRoutes = [
@@ -53,6 +54,10 @@ const defaultRoutes = [
   {
     path: '/api/expense',
     route: expenseRoute
+  },
+  {
+    path: '/api/notifications',
+    route: notificationRoute
   }
 ];
 

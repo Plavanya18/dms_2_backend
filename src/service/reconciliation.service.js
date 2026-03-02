@@ -558,10 +558,10 @@ const getAllReconciliations = async ({
       return acc;
     }, {});
 
-    const prevUsdRate = await getdb.openSetRate.findFirst({
+    const prevTzsRate = await getdb.openSetRate.findFirst({
       where: {
         date: { lt: todayDate },
-        currency: { code: "USD" }
+        currency: { code: "TZS" }
       },
       orderBy: { date: "desc" }
     });
@@ -570,7 +570,7 @@ const getAllReconciliations = async ({
       data: enhancedData,
       total,
       todayRates,
-      previousRate: prevUsdRate ? Number(prevUsdRate.set_rate) : 0
+      previousRate: prevTzsRate ? Number(prevTzsRate.set_rate) : 0
     };
   } catch (error) {
     logger.error("Failed to fetch reconciliations:", error);

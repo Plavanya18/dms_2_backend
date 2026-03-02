@@ -6,8 +6,11 @@ const createReconciliation = async (req, res) => {
     const userId = req.user;
     const data = req.body;
 
-    if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
-      return res.status(400).json({ message: "Opening entries are required." });
+    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
+    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+
+    if (!hasOpening && !hasClosing) {
+      return res.status(400).json({ message: "Either opening or closing entries are required." });
     }
 
     const rec = await reconciliationService.createReconciliation(data, userId);
@@ -155,6 +158,20 @@ const startReconciliation = async (req, res) => {
   }
 };
 
+const getCurrentDayReconciliation = async (req, res) => {
+  try {
+    const userId = req.user;
+    const rec = await reconciliationService.getCurrentDayReconciliation(userId);
+    return res.json({
+      message: "Current day reconciliation fetched successfully",
+      data: rec
+    });
+  } catch (err) {
+    console.error("Error fetching current day reconciliation:", err);
+    return res.status(500).json({ message: err.message || "Internal server error" });
+  }
+};
+
 module.exports = {
   createReconciliation,
   getAllReconciliations,
@@ -162,4 +179,5 @@ module.exports = {
   getReconciliationById,
   updateReconciliation,
   startReconciliation,
+  getCurrentDayReconciliation,
 };

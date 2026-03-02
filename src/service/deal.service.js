@@ -112,6 +112,41 @@ const createDeal = async (data, userId) => {
     });
 
     logger.info(`Deal created: ${newDeal.deal_number}`);
+
+    // Map to today's reconciliation if it exists
+    try {
+      const now = new Date();
+      const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+
+      const reconciliation = await getdb.reconciliation.findFirst({
+        where: {
+          created_by: userId,
+          created_at: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+      });
+
+      if (reconciliation) {
+        await getdb.reconciliationDeal.create({
+          data: {
+            reconciliation_id: reconciliation.id,
+            deal_id: newDeal.id,
+          },
+        });
+        logger.info(`Automatically mapped deal ${newDeal.deal_number} to reconciliation ${reconciliation.id}`);
+
+        // Automatically update the status (Tallied/Excess/Short)
+        const { calculateAndSetReconciliationStatus } = require("./reconciliation.service");
+        await calculateAndSetReconciliationStatus(reconciliation.id, userId);
+      }
+    } catch (mappingError) {
+      logger.error("Failed to automatically map deal to reconciliation:", mappingError);
+      // We don't throw here to avoid failing deal creation if mapping fails
+    }
+
     return newDeal;
   } catch (error) {
     logger.error("Failed to create deal:", error);
@@ -270,79 +305,78 @@ const getAllDeals = async (
       }
     }
 
-    let openingUSD = 0;
-    let openingTZS = 0;
+    let openingBalances = {};
 
     if (yesterdayRecon) {
       if (yesterdayRecon.status === "Tallied") {
         if (todayRecon) {
           todayRecon.openingEntries.forEach(e => {
-            if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
-            if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+            const code = e.currency.code;
+            openingBalances[code] = (openingBalances[code] || 0) + Number(e.amount || 0);
           });
         }
       } else if (yesterdayRecon.status === "Excess") {
         yesterdayRecon.closingEntries.forEach(e => {
-          if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
-          if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+          const code = e.currency.code;
+          openingBalances[code] = (openingBalances[code] || 0) + Number(e.amount || 0);
         });
         if (todayRecon) {
           todayRecon.openingEntries.forEach(e => {
-            if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
-            if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+            const code = e.currency.code;
+            openingBalances[code] = (openingBalances[code] || 0) + Number(e.amount || 0);
           });
         }
       } else if (yesterdayRecon.status === "Short") {
-        // Calculate Yesterday's Shortage
-        let yExpectedUSD = 0, yExpectedTZS = 0;
-        let yActualUSD = 0, yActualTZS = 0;
+        // Calculate Yesterday's Shortages for ALL currencies
+        let yExpected = {};
+        let yActual = {};
 
         yesterdayRecon.openingEntries.forEach(e => {
-          if (e.currency.code === "USD") yExpectedUSD += Number(e.amount || 0);
-          if (e.currency.code === "TZS") yExpectedTZS += Number(e.amount || 0);
+          const code = e.currency.code;
+          yExpected[code] = (yExpected[code] || 0) + Number(e.amount || 0);
         });
 
         yesterdayRecon.deals.forEach(rd => {
           const d = rd.deal;
           if (!d) return;
           (d.receivedItems || []).forEach(item => {
-            if (item.currency.code === "USD") yExpectedUSD += Number(item.total || 0);
-            if (item.currency.code === "TZS") yExpectedTZS += Number(item.total || 0);
+            const code = item.currency.code;
+            yExpected[code] = (yExpected[code] || 0) + Number(item.total || 0);
           });
           (d.paidItems || []).forEach(item => {
-            if (item.currency.code === "USD") yExpectedUSD -= Number(item.total || 0);
-            if (item.currency.code === "TZS") yExpectedTZS -= Number(item.total || 0);
+            const code = item.currency.code;
+            yExpected[code] = (yExpected[code] || 0) - Number(item.total || 0);
           });
         });
 
         yesterdayRecon.closingEntries.forEach(e => {
-          if (e.currency.code === "USD") yActualUSD += Number(e.amount || 0);
-          if (e.currency.code === "TZS") yActualTZS += Number(e.amount || 0);
+          const code = e.currency.code;
+          yActual[code] = (yActual[code] || 0) + Number(e.amount || 0);
         });
-
-        const shortUSD = Math.max(0, yExpectedUSD - yActualUSD);
-        const shortTZS = Math.max(0, yExpectedTZS - yActualTZS);
 
         if (todayRecon) {
           todayRecon.openingEntries.forEach(e => {
-            if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
-            if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+            const code = e.currency.code;
+            openingBalances[code] = (openingBalances[code] || 0) + Number(e.amount || 0);
           });
         }
-        openingUSD -= shortUSD;
-        openingTZS -= shortTZS;
+
+        // Apply shortages
+        Object.keys(yExpected).forEach(code => {
+          const short = Math.max(0, (yExpected[code] || 0) - (yActual[code] || 0));
+          openingBalances[code] = (openingBalances[code] || 0) - short;
+        });
       } else {
-        // Fallback for In_Progress or other states
         const entries = todayRecon ? todayRecon.openingEntries : yesterdayRecon.closingEntries;
         entries.forEach(e => {
-          if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
-          if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+          const code = e.currency.code;
+          openingBalances[code] = (openingBalances[code] || 0) + Number(e.amount || 0);
         });
       }
     } else if (todayRecon) {
       todayRecon.openingEntries.forEach(e => {
-        if (e.currency.code === "USD") openingUSD += Number(e.amount || 0);
-        if (e.currency.code === "TZS") openingTZS += Number(e.amount || 0);
+        const code = e.currency.code;
+        openingBalances[code] = (openingBalances[code] || 0) + Number(e.amount || 0);
       });
     }
 
@@ -357,10 +391,7 @@ const getAllDeals = async (
     }));
 
     const calculateTotals = (dealsArray) => {
-      let buyUSD = 0;
-      let sellUSD = 0;
-      let buyTZS = 0;
-      let sellTZS = 0;
+      let currencies = {};
 
       for (const deal of dealsArray) {
         const amount = Number(deal.amount || 0);
@@ -370,27 +401,30 @@ const getAllDeals = async (
         const sellCode = deal.sellCurrency?.code;
 
         if (deal.deal_type === "buy") {
-          if (buyCode === "USD") buyUSD += amount;
-          if (buyCode === "TZS") buyTZS += amount;
-
-          if (sellCode === "USD") sellUSD += amountToBePaid;
-          if (sellCode === "TZS") sellTZS += amountToBePaid;
+          if (buyCode) {
+            if (!currencies[buyCode]) currencies[buyCode] = { buy: 0, sell: 0 };
+            currencies[buyCode].buy += amount;
+          }
+          if (sellCode) {
+            if (!currencies[sellCode]) currencies[sellCode] = { buy: 0, sell: 0 };
+            currencies[sellCode].sell += amountToBePaid;
+          }
         }
 
         if (deal.deal_type === "sell") {
-          if (sellCode === "USD") sellUSD += amount;
-          if (sellCode === "TZS") sellTZS += amount;
-
-          if (buyCode === "USD") buyUSD += amountToBePaid;
-          if (buyCode === "TZS") buyTZS += amountToBePaid;
+          if (sellCode) {
+            if (!currencies[sellCode]) currencies[sellCode] = { buy: 0, sell: 0 };
+            currencies[sellCode].sell += amount;
+          }
+          if (buyCode) {
+            if (!currencies[buyCode]) currencies[buyCode] = { buy: 0, sell: 0 };
+            currencies[buyCode].buy += amountToBePaid;
+          }
         }
       }
 
       return {
-        buyUSD,
-        sellUSD,
-        buyTZS,
-        sellTZS,
+        currencies,
         count: dealsArray.length,
       };
     };
@@ -424,8 +458,7 @@ const getAllDeals = async (
     const stats = {
       today: {
         ...calculateTotals(todayDeals),
-        openingUSD,
-        openingTZS,
+        openingBalances,
       },
       yesterday: calculateTotals(yesterdayDeals),
     };
@@ -630,6 +663,7 @@ const updateDealStatus = async (id, status, reason = null, userId) => {
     });
 
     logger.info(`Deal status updated: ${updated.id} ${updated.deal_number}`);
+
     return updated;
 
   } catch (error) {
@@ -725,6 +759,7 @@ const updateDeal = async (id, data, userId) => {
     });
 
     logger.info(`Deal updated: ${updatedDeal.deal_number}`);
+
     return updatedDeal;
 
   } catch (error) {
@@ -733,11 +768,12 @@ const updateDeal = async (id, data, userId) => {
   }
 };
 
+
 module.exports = {
   createDeal,
   getAllDeals,
   getDealById,
   updateDealStatus,
-  updateDeal,
+  updateDeal
 };
 

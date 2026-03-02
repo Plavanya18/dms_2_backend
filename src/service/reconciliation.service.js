@@ -6,15 +6,91 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const os = require("os");
 
+const getCurrentDayReconciliation = async (userId) => {
+  try {
+    const now = new Date();
+    const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+
+    const reconciliation = await getdb.reconciliation.findFirst({
+      where: {
+        created_by: userId,
+        created_at: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: { include: { deal: true } },
+      },
+    });
+
+    return reconciliation;
+  } catch (error) {
+    logger.error("Failed to fetch current day reconciliation:", error);
+    throw error;
+  }
+};
+
+const mapDailyDeals = async (reconciliationId, userId) => {
+  try {
+    const reconciliation = await getdb.reconciliation.findUnique({
+      where: { id: Number(reconciliationId) },
+    });
+
+    if (!reconciliation) throw new Error("Reconciliation not found");
+
+    const startOfDay = new Date(reconciliation.created_at);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(reconciliation.created_at);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const deals = await getdb.deal.findMany({
+      where: {
+        created_at: { gte: startOfDay, lte: endOfDay },
+        reconciliations: { none: {} },
+        created_by: userId,
+      },
+    });
+
+    if (deals.length > 0) {
+      await getdb.reconciliationDeal.createMany({
+        data: deals.map((deal) => ({
+          reconciliation_id: reconciliation.id,
+          deal_id: deal.id,
+        })),
+      });
+    }
+
+    return deals.length;
+  } catch (error) {
+    logger.error("Failed to map daily deals:", error);
+    throw error;
+  }
+};
+
 const createReconciliation = async (data, userId) => {
   try {
-    if (!Array.isArray(data.openingEntries) || data.openingEntries.length === 0) {
-      throw new Error("Opening entries are required to create a reconciliation.");
+    // Check if reconciliation already exists for today
+    const existing = await getCurrentDayReconciliation(userId);
+
+    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
+    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+
+    if (!hasOpening && !hasClosing && !data.notes) {
+      throw new Error("No data provided to capture.");
     }
 
     const now = new Date();
-    const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
-    const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
+
+    if (existing) {
+      // If it exists, we behave like an update for the new entries provided
+      // This supports the "use Create API for first time capture" even if recon exists
+      return await updateReconciliation(existing.id, data, userId);
+    }
 
     const reconciliationStatus = hasClosing ? (data.status || "In_Progress") : "In_Progress";
 
@@ -24,21 +100,23 @@ const createReconciliation = async (data, userId) => {
         created_by: userId,
         created_at: now,
         updated_at: now,
-        openingEntries: {
-          create: data.openingEntries.map((entry) => ({
-            denomination: entry.denomination || entry.amount || 0,
-            quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
-            amount: entry.amount,
-            exchange_rate: entry.exchange_rate || 1.0,
-            currency_id: entry.currency_id,
-          })),
-        },
+        ...(hasOpening && {
+          openingEntries: {
+            create: data.openingEntries.map((entry) => ({
+              denomination: Math.round(Number(entry.denomination || entry.amount || 0)),
+              quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
+              amount: Math.round(Number(entry.amount)),
+              exchange_rate: entry.exchange_rate || 1.0,
+              currency_id: entry.currency_id,
+            })),
+          },
+        }),
         ...(hasClosing && {
           closingEntries: {
             create: data.closingEntries.map((entry) => ({
-              denomination: entry.denomination || entry.amount || 0,
+              denomination: Math.round(Number(entry.denomination || entry.amount || 0)),
               quantity: entry.quantity !== undefined && entry.quantity !== null ? entry.quantity : 1,
-              amount: entry.amount,
+              amount: Math.round(Number(entry.amount)),
               exchange_rate: entry.exchange_rate || 1.0,
               currency_id: entry.currency_id,
             })),
@@ -51,13 +129,6 @@ const createReconciliation = async (data, userId) => {
               return { note: noteText };
             }),
           },
-        }),
-        ...(Array.isArray(data.deals) && data.deals.length > 0 && {
-          deals: {
-            create: data.deals.map((d) => ({
-              deal_id: Number(d.deal_id || d.id)
-            }))
-          }
         }),
       },
       include: {
@@ -116,8 +187,17 @@ const startReconciliation = async (id, userId) => {
       });
     }
 
+    return await calculateAndSetReconciliationStatus(reconciliation.id, userId);
+  } catch (error) {
+    logger.error("Failed to start reconciliation:", error);
+    throw error;
+  }
+};
+
+const calculateAndSetReconciliationStatus = async (id, userId) => {
+  try {
     const updatedReconciliation = await getdb.reconciliation.findUnique({
-      where: { id: reconciliation.id },
+      where: { id: Number(id) },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
@@ -131,6 +211,10 @@ const startReconciliation = async (id, userId) => {
         },
       },
     });
+
+    if (!updatedReconciliation) {
+      throw new Error("Reconciliation not found");
+    }
 
     const currencyTotals = {};
 
@@ -209,14 +293,14 @@ const startReconciliation = async (id, userId) => {
     }
 
     await getdb.reconciliation.update({
-      where: { id: reconciliation.id },
+      where: { id: updatedReconciliation.id },
       data: { status: finalStatus, updated_at: new Date() }
     });
 
-    logger.info(`Reconciliation ${id} started. Final status: ${finalStatus}. ${deals.length} deals associated.`);
+    logger.info(`Reconciliation status recalculated for ID ${id}. Final status: ${finalStatus}.`);
 
     return await getdb.reconciliation.findUnique({
-      where: { id: reconciliation.id },
+      where: { id: updatedReconciliation.id },
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
@@ -225,7 +309,7 @@ const startReconciliation = async (id, userId) => {
       },
     });
   } catch (error) {
-    logger.error("Failed to start reconciliation:", error);
+    logger.error("Failed to recalculate reconciliation status:", error);
     throw error;
   }
 };
@@ -336,7 +420,31 @@ const getAllReconciliations = async ({
       take: limit,
     });
 
+    const reconciliationDates = [...new Set(reconciliations.map(r => {
+      const d = new Date(r.created_at);
+      d.setHours(0, 0, 0, 0);
+      return d.toISOString();
+    }))];
+
+    const openSetRates = await getdb.openSetRate.findMany({
+      where: {
+        date: { in: reconciliationDates.map(d => new Date(d)) }
+      },
+      include: { currency: true }
+    });
+
+    const ratesByDate = openSetRates.reduce((acc, rate) => {
+      const dateKey = new Date(rate.date).toISOString();
+      if (!acc[dateKey]) acc[dateKey] = {};
+      acc[dateKey][rate.currency.code] = rate;
+      return acc;
+    }, {});
+
     const enhancedData = reconciliations.map((rec) => {
+      const d = new Date(rec.created_at);
+      d.setHours(0, 0, 0, 0);
+      const dateKey = d.toISOString();
+
       // 1. Aggregation variables for this reconciliation
       let buyUsdForeign = 0;
       let buyUsdTzs = 0;
@@ -344,6 +452,9 @@ const getAllReconciliations = async ({
       let totalTzsReceived = 0;
       let totalForeignBought = 0;
       let totalForeignSold = 0;
+
+      let usdDealsCount = 0;
+      let sumUsdRates = 0;
 
       rec.deals.forEach(rd => {
         const deal = rd.deal;
@@ -356,9 +467,7 @@ const getAllReconciliations = async ({
           foreignAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
           tzsAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
 
-          // For sell deals in pending status, the logic is usually flipped in the service
           if (deal.deal_type === "sell") {
-            // In sell: foreign is paid, tzs is received
             foreignAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
             tzsAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
           }
@@ -367,13 +476,13 @@ const getAllReconciliations = async ({
         const buyCode = deal.buyCurrency?.code;
         const sellCode = deal.sellCurrency?.code;
 
-        // Valuation Rate Logic (USD Buy)
-        if (deal.deal_type === "buy" && buyCode === "USD") {
-          buyUsdForeign += foreignAmount;
-          buyUsdTzs += tzsAmount;
+        // Cumulative Average Logic (Simple average of rates for any USD deal)
+        if (buyCode === "USD" || sellCode === "USD") {
+          usdDealsCount++;
+          sumUsdRates += Number(deal.exchange_rate || 0);
         }
 
-        // Section A/B Aggregation Logic
+        // Section A/B Aggregation Logic (Unchanged)
         if (deal.deal_type === "buy" && buyCode !== "TZS") {
           totalTzsPaid += tzsAmount;
           totalForeignBought += foreignAmount;
@@ -384,7 +493,10 @@ const getAllReconciliations = async ({
         }
       });
 
-      const valuationRate = buyUsdForeign > 0 ? buyUsdTzs / buyUsdForeign : 0;
+      const valuationRate = usdDealsCount > 0 ? sumUsdRates / usdDealsCount : 0;
+
+      const usdRates = ratesByDate[dateKey]?.["USD"];
+      const effectiveSetRate = usdRates ? Number(usdRates.set_rate) : valuationRate;
 
       // 2. Valued Balances
       let openingUSD = 0, openingTZS = 0;
@@ -392,32 +504,33 @@ const getAllReconciliations = async ({
         if (o.currency.code === "USD") openingUSD += Number(o.amount || 0);
         else if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
-      const totalOpeningValue = openingUSD * valuationRate + openingTZS;
+      const totalOpeningValue = openingUSD * effectiveSetRate + openingTZS;
 
       let closingUSD = 0, closingTZS = 0;
       rec.closingEntries.forEach(c => {
         if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
         else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
-      const totalClosingValue = closingUSD * valuationRate + closingTZS;
+      const totalClosingValue = closingUSD * effectiveSetRate + closingTZS;
 
-      // 3. Profit/Loss Logic (Section A vs Section B)
-      const totalSalesValue = totalTzsPaid + (totalForeignSold * valuationRate);
-      const totalPurchaseValue = totalTzsReceived + (totalForeignBought * valuationRate);
+      const totalValueOut = totalTzsPaid + (totalForeignSold * effectiveSetRate);
+      const totalValueIn = totalTzsReceived + (totalForeignBought * effectiveSetRate);
 
-      const totalA = totalSalesValue + totalClosingValue;
-      const totalB = totalPurchaseValue + totalOpeningValue;
-      const profitLoss = totalA - totalB;
+      const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
 
       return {
         ...rec,
-        opening_total: totalOpeningValue,
-        closing_total: totalClosingValue,
+        totalTzsPaid,
+        totalTzsReceived,
+        totalForeignBought,
+        totalForeignSold,
         total_transactions: rec.deals.length,
+        totalOpeningValue,
+        totalClosingValue,
         profitLoss,
         valuationRate,
-        totalA,
-        totalB
+        setRate: effectiveSetRate,
+        hasCustomRates: !!usdRates
       };
     });
 
@@ -431,7 +544,34 @@ const getAllReconciliations = async ({
       return { filePath };
     }
 
-    return { data: enhancedData, total };
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const todayRatesData = await getdb.openSetRate.findMany({
+      where: { date: todayDate },
+      include: { currency: true }
+    });
+
+    const todayRates = todayRatesData.reduce((acc, rate) => {
+      acc[rate.currency.code] = {
+        setRate: Number(rate.set_rate)
+      };
+      return acc;
+    }, {});
+
+    const prevUsdRate = await getdb.openSetRate.findFirst({
+      where: {
+        date: { lt: todayDate },
+        currency: { code: "USD" }
+      },
+      orderBy: { date: "desc" }
+    });
+
+    return {
+      data: enhancedData,
+      total,
+      todayRates,
+      previousRate: prevUsdRate ? Number(prevUsdRate.set_rate) : 0
+    };
   } catch (error) {
     logger.error("Failed to fetch reconciliations:", error);
     throw error;
@@ -1014,24 +1154,21 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     const totalOpeningValue = openingUSD * valuationRate + openingTZS;
     const totalClosingValue = closingUSD * valuationRate + closingTZS;
 
-    const totalSalesValue = totalTzsPaid + (totalForeignSold * valuationRate);
-    const totalPurchaseValue = totalTzsReceived + (totalForeignBought * valuationRate);
+    const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate);
+    const totalValueIn = totalTzsReceived + (totalForeignBought * valuationRate);
 
-    const totalA = totalSalesValue + totalClosingValue;
+    const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
 
-    const totalB = totalPurchaseValue + totalOpeningValue;
-
-    const profitLoss = totalA - totalB;
-
-    console.log("📊 Section A (Sales + Closing):", totalA);
-    console.log("📊 Section B (Opening + Purchases):", totalB);
-    console.log("📉 RECONCILIATION DISCREPANCY:", profitLoss);
+    console.log("📊 Opening Value (TZS):", totalOpeningValue);
+    console.log("📊 Closing Value (TZS):", totalClosingValue);
+    console.log("📤 Total Value Out (TZS Paid + Foreign Sold):", totalValueOut);
+    console.log("📥 Total Value In (TZS Received + Foreign Bought):", totalValueIn);
+    console.log("📉 RECONCILIATION VARIANCE (P/L):", profitLoss);
 
     // Fields used in list view, now calculated with valued amounts
     const opening_total = totalOpeningValue;
     const closing_total = totalClosingValue;
     const total_transactions = rec.deals.length;
-    const difference = opening_total - closing_total;
 
     return {
       ...rec,
@@ -1046,13 +1183,10 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
       currencyStats,
       totalOpeningValue,
       totalClosingValue,
-      totalA,
-      totalB,
       profitLoss,
       opening_total,
       closing_total,
       total_transactions,
-      difference
     };
   } catch (error) {
     logger.error("❌ Failed to fetch reconciliation by ID:", error);
@@ -1111,14 +1245,6 @@ const updateReconciliation = async (id, data, userId) => {
         ...(Array.isArray(data.notes) && data.notes.length > 0 && {
           notes: { create: data.notes.map(n => ({ note: n })) },
         }),
-        ...(Array.isArray(data.deals) && data.deals.length > 0 && {
-          deals: {
-            deleteMany: {},
-            create: data.deals.map((d) => ({
-              deal_id: Number(d.deal_id || d.id)
-            }))
-          }
-        }),
       },
       include: {
         openingEntries: { include: { currency: true } },
@@ -1127,6 +1253,13 @@ const updateReconciliation = async (id, data, userId) => {
         deals: { include: { deal: true } },
       },
     });
+
+    // If closing entries were added, trigger auto-mapping of deals and update status
+    if (hasClosing) {
+      await mapDailyDeals(id, userId);
+      // We call startReconciliation (re-run logic) to get final Tally/Short/Excess status
+      return await startReconciliation(id, userId);
+    }
 
     return updatedReconciliation;
   } catch (error) {
@@ -1142,4 +1275,6 @@ module.exports = {
   getReconciliationById,
   updateReconciliation,
   startReconciliation,
+  getCurrentDayReconciliation,
+  calculateAndSetReconciliationStatus,
 };

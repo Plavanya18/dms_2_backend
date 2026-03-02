@@ -84,7 +84,7 @@ const loginUser = async (email, password) => {
     //   };
     // }
 
-    const otp = "1234"; 
+    const otp = "1234";
     // const otp = Math.floor(1000 + Math.random() * 9000).toString();
     otpStore.set(email, {
       otp,
@@ -132,47 +132,37 @@ const verifyOtp = async (email, otp, ip_id = null) => {
     if (!user) throw new Error("User not found");
     if (!user.is_active) throw new Error("User is deactivated");
 
-    const activeSession = user.sessions?.find(
-      (s) => s.session_status === "active"
-    );
+    // Terminate any existing active sessions for this user
+    const terminatedSessions = await getdb.userSession.updateMany({
+      where: {
+        user_id: user.id,
+        session_status: "active",
+      },
+      data: {
+        session_status: "terminated",
+        logout_time: timestamp,
+        updated_at: timestamp,
+      },
+    });
 
-    // if (activeSession) {
-    //   await getdb.userSession.update({
-    //     where: { id: activeSession.id },
-    //     data: {
-    //       session_status: "terminated",
-    //       logout_time: timestamp,
-    //       updated_at: timestamp,
-    //     },
-    //   });
+    if (terminatedSessions.count > 0) {
+      await getdb.user.update({
+        where: { id: user.id },
+        data: { force_logout: true, updated_at: timestamp },
+      });
 
-    //   // const deletedDeals = await getdb.deal.updateMany({
-    //   //   where: {
-    //   //     created_by: user.id,
-    //   //     deleted_at: null,
-    //   //   },
-    //   //   data: {
-    //   //     deleted_at: timestamp,
-    //   //   },
-    //   // });
+      logger.warn(
+        `User ${email} had ${terminatedSessions.count} active session(s) — forced logout triggered for them.`
+      );
+    }
 
-    //   await getdb.user.update({
-    //     where: { id: user.id },
-    //     data: { force_logout: true, updated_at: timestamp },
-    //   });
-
-    //   logger.warn(
-    //     `User ${email} had an active session — force logout triggered.`
-    //   );
-    // }
-
-    // if (user.force_logout) {
-    //   await getdb.user.update({
-    //     where: { id: user.id },
-    //     data: { force_logout: false, updated_at: timestamp },
-    //   });
-    //   logger.info(`Force logout cleared for user: ${email}`);
-    // }
+    if (user.force_logout) {
+      await getdb.user.update({
+        where: { id: user.id },
+        data: { force_logout: false, updated_at: timestamp },
+      });
+      logger.info(`Force logout cleared for user: ${email}`);
+    }
 
     const token = jwt.sign(
       {
@@ -240,14 +230,14 @@ const changePasswordByEmail = async (email, oldPassword, newPassword) => {
       const validOldPassword = await bcrypt.compare(oldPassword, user.password);
       if (!validOldPassword) {
         logger.warn(`Incorrect old password attempt for email: ${email}`);
-        return {message: "Old password is incorrect" };
+        return { message: "Old password is incorrect" };
       }
     }
 
     const isSamePassword = await bcrypt.compare(newPassword, user.password);
     if (isSamePassword) {
       logger.warn(`New password same as old password attempt for email: ${email}`);
-      return {message: "New password cannot be the same as the old password" };
+      return { message: "New password cannot be the same as the old password" };
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -263,7 +253,7 @@ const changePasswordByEmail = async (email, oldPassword, newPassword) => {
     });
 
     logger.info(`Password changed successfully for user: ${email}`);
-    return {message: "Password changed successfully" };
+    return { message: "Password changed successfully" };
 
   } catch (error) {
     logger.error(`Failed to change password for ${email}:`, error);
@@ -296,7 +286,7 @@ const resetPassword = async (email, newPassword) => {
   try {
     const hashed = await bcrypt.hash(newPassword, 10);
     const user = await getdb.user.update({
-      where: { email: email},
+      where: { email: email },
       data: { password: hashed },
     });
     logger.info(`Password updated for user: ${user.email}`);
@@ -307,7 +297,7 @@ const resetPassword = async (email, newPassword) => {
   }
 };
 
-module.exports = { 
+module.exports = {
   loginUser,
   verifyOtp,
   changePasswordByEmail,

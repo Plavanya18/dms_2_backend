@@ -16,12 +16,10 @@ const upsertOpenSetRate = async (data) => {
             },
             update: {
                 set_rate: set_rate,
-                open_rate: 0, // Temporary fallback until migration is complete
             },
             create: {
                 currency_id: Number(currency_id),
                 set_rate: set_rate,
-                open_rate: 0, // Temporary fallback until migration is complete
                 date: targetDate,
             },
             include: {
@@ -52,14 +50,16 @@ const getOpenSetRates = async (date) => {
             },
         });
 
+        // 1st: Try previous TZS set rate
         let previousRateRecord = await getdb.openSetRate.findFirst({
             where: {
                 date: { lt: targetDate },
-                currency: { code: "USD" }
+                currency: { code: "TZS" }
             },
             orderBy: { date: "desc" }
         });
 
+        // 2nd: Any previous set rate regardless of currency
         if (!previousRateRecord) {
             previousRateRecord = await getdb.openSetRate.findFirst({
                 where: { date: { lt: targetDate } },
@@ -67,9 +67,50 @@ const getOpenSetRates = async (date) => {
             });
         }
 
+        let previousRate = previousRateRecord ? Number(previousRateRecord.set_rate) : 0;
+
+        if (!previousRate) {
+            const yesterday = new Date(targetDate);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStart = new Date(yesterday);
+            yesterdayStart.setHours(0, 0, 0, 0);
+            const yesterdayEnd = new Date(yesterday);
+            yesterdayEnd.setHours(23, 59, 59, 999);
+
+            const yesterdayDeals = await getdb.deal.findMany({
+                where: {
+                    created_at: { gte: yesterdayStart, lte: yesterdayEnd },
+                    OR: [
+                        { buyCurrency: { code: "TZS" } },
+                        { sellCurrency: { code: "TZS" } }
+                    ]
+                },
+                select: {
+                    amount: true,
+                    amount_to_be_paid: true,
+                    exchange_rate: true,
+                    created_at: true
+                }
+            });
+
+            if (yesterdayDeals.length > 0) {
+                let sumRates = 0, count = 0;
+                yesterdayDeals.forEach(deal => {
+                    const amount = Number(deal.amount || 0);
+                    const amountPaid = Number(deal.amount_to_be_paid || 0);
+                    const effectiveRate = amount > 0 ? amountPaid / amount : Number(deal.exchange_rate || 0);
+                    if (effectiveRate > 0) {
+                        sumRates += effectiveRate;
+                        count++;
+                    }
+                });
+                if (count > 0) previousRate = Math.round(sumRates / count);
+            }
+        }
+
         return {
             rates,
-            previousRate: previousRateRecord ? Number(previousRateRecord.set_rate) : 0
+            previousRate
         };
     } catch (error) {
         logger.error("Failed to fetch OpenSetRates:", error);

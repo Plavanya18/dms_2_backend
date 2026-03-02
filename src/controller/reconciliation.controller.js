@@ -72,23 +72,6 @@ const getAllReconciliations = async (req, res) => {
   }
 };
 
-const fetchReconciliationAlerts = async (req, res) => {
-  try {
-    const alerts = await reconciliationService.getReconciliationAlerts();
-
-    return res.status(200).json({
-      success: true,
-      alerts,
-    });
-  } catch (error) {
-    console.error("Error fetching alerts:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch reconciliation alerts",
-    });
-  }
-};
-
 const getReconciliationById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -175,7 +158,6 @@ const getCurrentDayReconciliation = async (req, res) => {
 module.exports = {
   createReconciliation,
   getAllReconciliations,
-  fetchReconciliationAlerts,
   getReconciliationById,
   updateReconciliation,
   startReconciliation,

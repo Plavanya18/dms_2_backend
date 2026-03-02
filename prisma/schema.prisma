@@ -31,6 +31,7 @@ model User {
   dealsCreated          Deal[]           @relation("DealCreatedBy")
   expenses              Expense[]
   reconciliations       Reconciliation[]
+  notifications         Notification[]
   details               UserDetail?
   sessions              UserSession[]
 
@@ -325,4 +326,19 @@ enum SessionStatus {
   inactive
   terminated
   timeout
+}
+
+model Notification {
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  title        String
+  message      String
+  alert_type   String   // RECONCILIATION, PENDING_DEAL, etc.
+  reference_id Int?     // id of the recon or deal
+  is_read      Boolean  @default(false)
+  is_deleted   Boolean  @default(false)
+  created_at   DateTime @default(now())
+  user         User     @relation(fields: [user_id], references: [id])
+
+  @@map("notification")
 }

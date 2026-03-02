@@ -453,6 +453,9 @@ const getAllReconciliations = async ({
       let totalForeignBought = 0;
       let totalForeignSold = 0;
 
+      let usdDealsCount = 0;
+      let sumUsdRates = 0;
+
       rec.deals.forEach(rd => {
         const deal = rd.deal;
         if (!deal) return;
@@ -464,9 +467,7 @@ const getAllReconciliations = async ({
           foreignAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
           tzsAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
 
-          // For sell deals in pending status, the logic is usually flipped in the service
           if (deal.deal_type === "sell") {
-            // In sell: foreign is paid, tzs is received
             foreignAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
             tzsAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
           }
@@ -475,13 +476,13 @@ const getAllReconciliations = async ({
         const buyCode = deal.buyCurrency?.code;
         const sellCode = deal.sellCurrency?.code;
 
-        // Valuation Rate Logic (USD Buy)
-        if (deal.deal_type === "buy" && buyCode === "USD") {
-          buyUsdForeign += foreignAmount;
-          buyUsdTzs += tzsAmount;
+        // Cumulative Average Logic (Simple average of rates for any USD deal)
+        if (buyCode === "USD" || sellCode === "USD") {
+          usdDealsCount++;
+          sumUsdRates += Number(deal.exchange_rate || 0);
         }
 
-        // Section A/B Aggregation Logic
+        // Section A/B Aggregation Logic (Unchanged)
         if (deal.deal_type === "buy" && buyCode !== "TZS") {
           totalTzsPaid += tzsAmount;
           totalForeignBought += foreignAmount;
@@ -492,7 +493,7 @@ const getAllReconciliations = async ({
         }
       });
 
-      const valuationRate = buyUsdForeign > 0 ? buyUsdTzs / buyUsdForeign : 0;
+      const valuationRate = usdDealsCount > 0 ? sumUsdRates / usdDealsCount : 0;
 
       const usdRates = ratesByDate[dateKey]?.["USD"];
       const effectiveSetRate = usdRates ? Number(usdRates.set_rate) : valuationRate;

@@ -30,7 +30,9 @@ const listDealController = async (req, res) => {
       dateFilter = "",
       startDate = "",
       endDate = "",
-      format = ""
+      format = "",
+      customer_id = "",
+      dealType = ""
     } = req.query;
 
     const result = await dealService.getAllDeals(
@@ -45,6 +47,8 @@ const listDealController = async (req, res) => {
       startDate,
       endDate,
       format,
+      customer_id,
+      dealType,
       req.user,
       req.roleName
     );

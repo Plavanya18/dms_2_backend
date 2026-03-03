@@ -166,6 +166,8 @@ const getAllDeals = async (
   startDate = "",
   endDate = "",
   format = "",
+  customer_id = "",
+  dealType = "",
   userId = null,
   roleName = ""
 ) => {
@@ -205,6 +207,14 @@ const getAllDeals = async (
       } else {
         where.AND = [currencyFilter];
       }
+    }
+
+    if (customer_id) {
+      where.customer_id = Number(customer_id);
+    }
+
+    if (dealType && dealType !== "All") {
+      where.deal_type = dealType.toLowerCase();
     }
 
     // Date filtering logic

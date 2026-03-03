@@ -549,12 +549,12 @@ const getAllReconciliations = async ({
     });
 
     if (format === "excel") {
-      const filePath = await generateExcel(reconciliations);
+      const filePath = await generateExcel(enhancedData);
       return { filePath };
     }
 
     if (format === "pdf") {
-      const filePath = await generatePDF(reconciliations);
+      const filePath = await generatePDF(enhancedData);
       return { filePath };
     }
 
@@ -602,41 +602,52 @@ const generateExcel = async (recs) => {
     { header: "Created At", key: "created_at", width: 20 },
     { header: "Created By", key: "created_by", width: 20 },
     { header: "Opening Entries", key: "opening_entries", width: 50 },
+    { header: "Opening Book Balance (TZS)", key: "opening_book_balance", width: 30 },
     { header: "Closing Entries", key: "closing_entries", width: 50 },
+    { header: "Closing Book Balance (TZS)", key: "closing_book_balance", width: 30 },
+    { header: "Profit / Loss (TZS)", key: "profit_loss", width: 25 },
     { header: "Notes", key: "notes", width: 50 },
   ];
 
   recs.forEach((r) => {
-    const openingStr = r.openingEntries
-      .map(
-        (o) =>
-          `${o.denomination}x${o.quantity} = ${o.amount} ${o.currency.code}`
-      )
+    // Aggregate opening entries by currency code
+    const openingByCurr = {};
+    (r.openingEntries || []).forEach(o => {
+      const code = o.currency?.code || "?";
+      openingByCurr[code] = (openingByCurr[code] || 0) + Number(o.amount || 0);
+    });
+    const openingStr = Object.entries(openingByCurr)
+      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
       .join("; ");
 
-    const closingStr = r.closingEntries
-      .map(
-        (c) =>
-          `${c.denomination}x${c.quantity} = ${c.amount} ${c.currency.code}`
-      )
+    // Aggregate closing entries by currency code
+    const closingByCurr = {};
+    (r.closingEntries || []).forEach(c => {
+      const code = c.currency?.code || "?";
+      closingByCurr[code] = (closingByCurr[code] || 0) + Number(c.amount || 0);
+    });
+    const closingStr = Object.entries(closingByCurr)
+      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
       .join("; ");
 
-    const notesStr = r.notes.map((n) => n.note).join("; ");
+    const notesStr = (r.notes || []).map((n) => n.note).join("; ");
 
     sheet.addRow({
       id: r.id,
       status: r.status,
-      created_at: r.created_at.toISOString(),
+      created_at: new Date(r.created_at).toISOString().split("T")[0],
       created_by: r.createdBy?.full_name,
       opening_entries: openingStr,
+      opening_book_balance: Number(r.totalOpeningValue || 0).toLocaleString(),
       closing_entries: closingStr,
+      closing_book_balance: Number(r.totalClosingValue || 0).toLocaleString(),
+      profit_loss: Number(r.profitLoss || 0).toLocaleString(),
       notes: notesStr,
     });
   });
 
   const folder = path.join(os.homedir(), "Desktop");
   if (!fs.existsSync(folder)) {
-    // Fallback if Desktop doesn't exist for some reason
     const backupFolder = path.join(__dirname, "../downloads");
     if (!fs.existsSync(backupFolder)) fs.mkdirSync(backupFolder);
     const filePath = path.join(backupFolder, `reconciliations_${Date.now()}.xlsx`);
@@ -657,7 +668,7 @@ const generatePDF = async (recs) => {
     if (!fs.existsSync(folder)) fs.mkdirSync(folder);
   }
   const filePath = path.join(folder, `reconciliations_${Date.now()}.pdf`);
-  const doc = new PDFDocument({ margin: 30, size: "A4" });
+  const doc = new PDFDocument({ margin: 40, size: "A4" });
   const writeStream = fs.createWriteStream(filePath);
   doc.pipe(writeStream);
 
@@ -665,32 +676,54 @@ const generatePDF = async (recs) => {
   doc.moveDown(1);
 
   recs.forEach((r) => {
-    const openingStr = r.openingEntries
-      .map(
-        (o) =>
-          `${o.denomination}x${o.quantity} = ${o.amount} ${o.currency.code}`
-      )
-      .join("; ");
+    // Aggregate opening entries by currency code
+    const openingByCurr = {};
+    (r.openingEntries || []).forEach(o => {
+      const code = o.currency?.code || "?";
+      openingByCurr[code] = (openingByCurr[code] || 0) + Number(o.amount || 0);
+    });
+    const openingStr = Object.entries(openingByCurr)
+      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
+      .join("; ") || "—";
 
-    const closingStr = r.closingEntries
-      .map(
-        (c) =>
-          `${c.denomination}x${c.quantity} = ${c.amount} ${c.currency.code}`
-      )
-      .join("; ");
+    // Aggregate closing entries by currency code
+    const closingByCurr = {};
+    (r.closingEntries || []).forEach(c => {
+      const code = c.currency?.code || "?";
+      closingByCurr[code] = (closingByCurr[code] || 0) + Number(c.amount || 0);
+    });
+    const closingStr = Object.entries(closingByCurr)
+      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
+      .join("; ") || "—";
 
-    const notesStr = r.notes.map((n) => n.note).join("; ");
+    const openingBalance = Number(r.totalOpeningValue || 0).toLocaleString();
+    const closingBalance = Number(r.totalClosingValue || 0).toLocaleString();
+    const pnl = Number(r.profitLoss || 0).toLocaleString();
+    const pnlSign = Number(r.profitLoss || 0) >= 0 ? "+" : "";
 
-    doc.fontSize(12).text(`
-ID: ${r.id}
-Status: ${r.status}
-Created At: ${r.created_at.toISOString()}
-Created By: ${r.createdBy?.full_name}
-Opening Entries: ${openingStr}
-Closing Entries: ${closingStr}
-Notes: ${notesStr}
------------------------------------------
-`);
+    const notesStr = (r.notes || []).map((n) => n.note).join("; ") || "—";
+    const createdAt = new Date(r.created_at).toISOString().split("T")[0];
+
+    doc.fontSize(12)
+      .text(`ID: ${r.id}`)
+      .text(`Status: ${r.status}`)
+      .text(`Created At: ${createdAt}`)
+      .text(`Created By: ${r.createdBy?.full_name || "—"}`);
+
+    doc.moveDown(0.3);
+    doc.text(`Opening Entries: ${openingStr}`);
+    doc.text(`Opening Book Balance: ${openingBalance} TZS`);
+
+    doc.moveDown(0.3);
+    doc.text(`Closing Entries: ${closingStr}`);
+    doc.text(`Closing Book Balance: ${closingBalance} TZS`);
+
+    doc.moveDown(0.3);
+    doc.text(`Profit / Loss: ${pnlSign}${pnl} TZS`);
+
+    doc.moveDown(1);
+    doc.text("---------------------------------------------");
+    doc.moveDown(1);
   });
 
   doc.end();

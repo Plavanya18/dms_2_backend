@@ -510,31 +510,27 @@ const generateDealsExcel = async (deals) => {
     { header: "Deal Type", key: "deal_type", width: 15 },
     { header: "Customer Name", key: "customer_name", width: 25 },
     { header: "Customer Phone", key: "customer_phone", width: 20 },
-    { header: "Customer Email", key: "customer_email", width: 25 },
+    { header: "Currency Pair", key: "currency_pair", width: 20 },
     { header: "Buy Amount", key: "buy_amount", width: 15 },
-    { header: "Buy Currency", key: "buy_currency", width: 20 },
-    { header: "exchange_rate", key: "exchange_rate", width: 10 },
+    { header: "Exchange Rate", key: "exchange_rate", width: 15 },
     { header: "Sell Amount", key: "sell_amount", width: 15 },
-    { header: "Sell Currency", key: "sell_currency", width: 20 },
     { header: "Status", key: "status", width: 15 },
     { header: "Created At", key: "created_at", width: 20 },
     { header: "Created By", key: "created_by", width: 20 },
   ];
 
   deals.forEach((d) => {
-    const totalReceived = d.receivedItems.reduce((sum, i) => sum + Number(i.total), 0);
-    const totalPaid = d.paidItems.reduce((sum, i) => sum + Number(i.total), 0);
+    const isBuy = d.deal_type === "buy";
+    const buyCurr = d.buyCurrency?.code || "";
+    const sellCurr = d.sellCurrency?.code || "";
+    const pair = isBuy ? `${buyCurr}/${sellCurr}` : `${sellCurr}/${buyCurr}`;
 
-    const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
-    const buy_currency =
-      d.deal_type === "buy"
-        ? d.paidItems.map((i) => `${i.currency.code}(${i.total})`).join(", ")
-        : d.receivedItems.map((i) => `${i.currency.code}(${i.total})`).join(", ");
-    const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
-    const sell_currency =
-      d.deal_type === "buy"
-        ? d.receivedItems.map((i) => `${i.currency.code}(${i.total})`).join(", ")
-        : d.paidItems.map((i) => `${i.currency.code}(${i.total})`).join(", ");
+    const buy_amount = isBuy
+      ? `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`
+      : `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`;
+    const sell_amount = isBuy
+      ? `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`
+      : `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`;
 
     sheet.addRow({
       id: d.id,
@@ -542,12 +538,10 @@ const generateDealsExcel = async (deals) => {
       deal_type: d.deal_type,
       customer_name: d.customer?.name || "",
       customer_phone: d.customer?.phone_number || "",
-      customer_email: d.customer?.email || "",
+      currency_pair: pair,
       buy_amount,
-      buy_currency,
       exchange_rate: d.exchange_rate,
       sell_amount,
-      sell_currency,
       status: d.status,
       created_at: d.created_at.toISOString(),
       created_by: d.createdBy?.full_name,
@@ -584,20 +578,17 @@ const generateDealsPDF = async (deals) => {
   doc.moveDown(1.5);
 
   deals.forEach((d) => {
-    const totalReceived = d.receivedItems.reduce((sum, i) => sum + Number(i.total), 0);
-    const totalPaid = d.paidItems.reduce((sum, i) => sum + Number(i.total), 0);
+    const isBuy = d.deal_type === "buy";
+    const buyCurr = d.buyCurrency?.code || "";
+    const sellCurr = d.sellCurrency?.code || "";
+    const pair = isBuy ? `${buyCurr}/${sellCurr}` : `${sellCurr}/${buyCurr}`;
 
-    const buy_amount = d.deal_type === "buy" ? totalPaid : totalReceived;
-    const buy_currency =
-      d.deal_type === "buy"
-        ? d.paidItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
-        : d.receivedItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
-
-    const sell_amount = d.deal_type === "buy" ? totalReceived : totalPaid;
-    const sell_currency =
-      d.deal_type === "buy"
-        ? d.receivedItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ")
-        : d.paidItems.map(i => `${i.currency?.code || ""} (${i.total})`).join(", ");
+    const buy_amount = isBuy
+      ? `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`
+      : `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`;
+    const sell_amount = isBuy
+      ? `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`
+      : `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`;
 
     const createdAt =
       d.created_at instanceof Date
@@ -609,12 +600,10 @@ const generateDealsPDF = async (deals) => {
     doc.text(`Deal Type: ${d.deal_type}`);
     doc.text(`Customer Name: ${d.customer?.name || ""}`);
     doc.text(`Customer Phone: ${d.customer?.phone_number || ""}`);
-    doc.text(`Customer Email: ${d.customer?.email || ""}`);
+    doc.text(`Currency Pair: ${pair}`);
     doc.text(`Buy Amount: ${buy_amount}`);
-    doc.text(`Buy Currency: ${buy_currency}`);
-    doc.text(`Exchange_rate: ${d.exchange_rate}`);
+    doc.text(`Exchange Rate: ${d.exchange_rate}`);
     doc.text(`Sell Amount: ${sell_amount}`);
-    doc.text(`Sell Currency: ${sell_currency}`);
     doc.text(`Status: ${d.status}`);
     doc.text(`Created At: ${createdAt}`);
     doc.text(`Created By: ${d.createdBy?.full_name || ""}`);

@@ -353,6 +353,20 @@ const getAllReconciliations = async ({
           end = new Date(now.setHours(23, 59, 59, 999));
           break;
 
+        case "last30":
+          start = new Date(now);
+          start.setDate(now.getDate() - 30);
+          start.setHours(0, 0, 0, 0);
+          end = new Date(now.setHours(23, 59, 59, 999));
+          break;
+
+        case "last90":
+          start = new Date(now);
+          start.setDate(now.getDate() - 90);
+          start.setHours(0, 0, 0, 0);
+          end = new Date(now.setHours(23, 59, 59, 999));
+          break;
+
         case "thisMonth":
           start = new Date(now.getFullYear(), now.getMonth(), 1);
           start.setHours(0, 0, 0, 0);

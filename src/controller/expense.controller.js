@@ -14,6 +14,9 @@ const createExpense = async (req, res) => {
 const getAllExpenses = async (req, res) => {
     try {
         const result = await expenseService.getAllExpenses(req.query);
+        if (result.filePath) {
+            return res.download(result.filePath);
+        }
         res.json({ success: true, ...result });
     } catch (error) {
         logger.error('Get expenses error:', error);

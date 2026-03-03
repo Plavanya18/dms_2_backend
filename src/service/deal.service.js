@@ -265,8 +265,8 @@ const getAllDeals = async (
         createdBy: { select: { id: true, full_name: true, email: true } },
         actionBy: { select: { id: true, full_name: true, email: true } },
       },
-      skip,
-      take: limit,
+      skip: (format === "pdf" || format === "excel") ? undefined : skip,
+      take: (format === "pdf" || format === "excel") ? undefined : limit,
       orderBy: { [orderByField]: orderDirection },
     });
 
@@ -474,12 +474,12 @@ const getAllDeals = async (
     };
 
     if (format === "pdf") {
-      const filePath = await geneexchange_ratePDF(dealsWithTotals);
+      const filePath = await generateDealsPDF(dealsWithTotals);
       return { filePath, stats };
     }
 
     if (format === "excel") {
-      const filePath = await geneexchange_rateExcel(dealsWithTotals);
+      const filePath = await generateDealsExcel(dealsWithTotals);
       return { filePath, stats };
     }
 
@@ -500,7 +500,7 @@ const getAllDeals = async (
 };
 
 
-const geneexchange_rateExcel = async (deals) => {
+const generateDealsExcel = async (deals) => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Deals");
 
@@ -568,7 +568,7 @@ const geneexchange_rateExcel = async (deals) => {
   return filePath;
 };
 
-const geneexchange_ratePDF = async (deals) => {
+const generateDealsPDF = async (deals) => {
   let folder = path.join(os.homedir(), "Desktop");
   if (!fs.existsSync(folder)) {
     folder = path.join(__dirname, "../downloads");

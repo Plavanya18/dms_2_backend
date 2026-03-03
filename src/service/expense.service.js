@@ -1,5 +1,10 @@
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
+const path = require("path");
+const fs = require("fs");
+const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
+const os = require("os");
 
 /**
  * Create a new expense
@@ -29,7 +34,7 @@ const createExpense = async (data, userId) => {
  */
 const getAllExpenses = async (params = {}) => {
     try {
-        const { page = 1, limit = 10, category, currency_id, startDate, endDate, dateFilter } = params;
+        const { page = 1, limit = 10, category, currency_id, startDate, endDate, dateFilter, format } = params;
         const skip = (page - 1) * limit;
         const now = new Date();
 
@@ -70,14 +75,24 @@ const getAllExpenses = async (params = {}) => {
 
         const expenses = await getdb.expense.findMany({
             where,
-            skip,
-            take: Number(limit),
+            skip: (format === "pdf" || format === "excel") ? undefined : skip,
+            take: (format === "pdf" || format === "excel") ? undefined : Number(limit),
             orderBy: { date: "desc" },
             include: {
                 createdBy: { select: { id: true, full_name: true } },
                 currency: { select: { id: true, code: true, symbol: true } }
             },
         });
+
+        if (format === "pdf") {
+            const filePath = await generateExpensesPDF(expenses);
+            return { filePath };
+        }
+
+        if (format === "excel") {
+            const filePath = await generateExpensesExcel(expenses);
+            return { filePath };
+        }
 
         const total = await getdb.expense.count({ where });
 
@@ -136,6 +151,79 @@ const deleteExpense = async (id, userId) => {
         logger.error("Error deleting expense:", error);
         throw error;
     }
+};
+
+const generateExpensesExcel = async (expenses) => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Expenses");
+
+    sheet.columns = [
+        { header: "ID", key: "id", width: 10 },
+        { header: "Date", key: "date", width: 20 },
+        { header: "Category", key: "category", width: 20 },
+        { header: "Description", key: "description", width: 40 },
+        { header: "Amount", key: "amount", width: 15 },
+        { header: "Currency", key: "currency", width: 10 },
+        { header: "Rate", key: "rate", width: 10 },
+        { header: "Created By", key: "created_by", width: 25 },
+    ];
+
+    expenses.forEach((exp) => {
+        sheet.addRow({
+            id: exp.id,
+            date: new Date(exp.date).toLocaleDateString(),
+            category: exp.category,
+            description: exp.description,
+            amount: exp.amount,
+            currency: exp.currency?.code,
+            rate: exp.rate,
+            created_by: exp.createdBy?.full_name,
+        });
+    });
+
+    let folder = path.join(os.homedir(), "Desktop");
+    if (!fs.existsSync(folder)) {
+        folder = path.join(__dirname, "../downloads");
+        if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+    }
+    const filePath = path.join(folder, `expenses_${Date.now()}.xlsx`);
+    await workbook.xlsx.writeFile(filePath);
+    return filePath;
+};
+
+const generateExpensesPDF = async (expenses) => {
+    let folder = path.join(os.homedir(), "Desktop");
+    if (!fs.existsSync(folder)) {
+        folder = path.join(__dirname, "../downloads");
+        if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+    }
+    const filePath = path.join(folder, `expenses_${Date.now()}.pdf`);
+    const doc = new PDFDocument({ margin: 40 });
+
+    const writeStream = fs.createWriteStream(filePath);
+    doc.pipe(writeStream);
+
+    doc.fontSize(20).text("Expenses Report", { underline: true });
+    doc.moveDown(1.5);
+
+    expenses.forEach((exp) => {
+        doc.fontSize(12).text(`
+ID: ${exp.id}
+Date: ${new Date(exp.date).toLocaleDateString()}
+Category: ${exp.category}
+Description: ${exp.description}
+Amount: ${exp.amount} ${exp.currency?.code || ""}
+Rate: ${exp.rate}
+Created By: ${exp.createdBy?.full_name}
+-----------------------------------------
+`);
+    });
+
+    doc.end();
+
+    return new Promise((resolve) => {
+        writeStream.on("finish", () => resolve(filePath));
+    });
 };
 
 module.exports = {

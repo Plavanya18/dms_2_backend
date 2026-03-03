@@ -416,8 +416,8 @@ const getAllReconciliations = async ({
         createdBy: { select: { id: true, full_name: true, email: true } },
       },
       orderBy: { created_at: "desc" },
-      skip,
-      take: limit,
+      skip: (format === "pdf" || format === "excel") ? undefined : skip,
+      take: (format === "pdf" || format === "excel") ? undefined : limit,
     });
 
     const reconciliationDates = [...new Set(reconciliations.map(r => {

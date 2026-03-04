@@ -499,6 +499,21 @@ const getAllDeals = async (
   }
 };
 
+const capitalizeWords = (str = "") => {
+  return str
+    .toLowerCase()
+    .split(" ")
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
+const formatDateDDMMYYYY = (date) => {
+  const d = date instanceof Date ? date : new Date(date);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+};
 
 const generateDealsExcel = async (deals) => {
   const workbook = new ExcelJS.Workbook();
@@ -509,7 +524,6 @@ const generateDealsExcel = async (deals) => {
     { header: "Deal Number", key: "deal_number", width: 20 },
     { header: "Deal Type", key: "deal_type", width: 15 },
     { header: "Customer Name", key: "customer_name", width: 25 },
-    { header: "Customer Phone", key: "customer_phone", width: 20 },
     { header: "Currency Pair", key: "currency_pair", width: 20 },
     { header: "Buy Amount", key: "buy_amount", width: 15 },
     { header: "Exchange Rate", key: "exchange_rate", width: 15 },
@@ -535,16 +549,15 @@ const generateDealsExcel = async (deals) => {
     sheet.addRow({
       id: d.id,
       deal_number: d.deal_number,
-      deal_type: d.deal_type,
+      deal_type: capitalizeWords(d.deal_type),
       customer_name: d.customer?.name || "",
-      customer_phone: d.customer?.phone_number || "",
       currency_pair: pair,
       buy_amount,
-      exchange_rate: d.exchange_rate,
+      exchange_rate: Number(d.exchange_rate || 0),
       sell_amount,
       status: d.status,
-      created_at: d.created_at.toISOString(),
-      created_by: d.createdBy?.full_name,
+      created_at: formatDateDDMMYYYY(d.created_at),
+      created_by: capitalizeWords(d.createdBy?.full_name || ""),
     });
   });
 
@@ -597,17 +610,21 @@ const generateDealsPDF = async (deals) => {
 
     doc.fontSize(12).text(`ID: ${d.id}`);
     doc.text(`Deal Number: ${d.deal_number}`);
-    doc.text(`Deal Type: ${d.deal_type}`);
+    doc.text(
+      `Deal Type: ${
+        d.deal_type
+          ? d.deal_type.charAt(0).toUpperCase() + d.deal_type.slice(1)
+          : ""
+      }`
+    );
     doc.text(`Customer Name: ${d.customer?.name || ""}`);
-    doc.text(`Customer Phone: ${d.customer?.phone_number || ""}`);
     doc.text(`Currency Pair: ${pair}`);
     doc.text(`Buy Amount: ${buy_amount}`);
-    doc.text(`Exchange Rate: ${d.exchange_rate}`);
+    doc.text(`Exchange Rate: ${Number(d.exchange_rate || 0)}`);
     doc.text(`Sell Amount: ${sell_amount}`);
     doc.text(`Status: ${d.status}`);
-    doc.text(`Created At: ${createdAt}`);
-    doc.text(`Created By: ${d.createdBy?.full_name || ""}`);
-
+    doc.text(`Created At: ${formatDateDDMMYYYY(d.created_at)}`);
+    doc.text(`Created By: ${capitalizeWords(d.createdBy?.full_name || "")}`);
     doc.moveDown(1);
     doc.text("----------------------------------------------");
     doc.moveDown(1);

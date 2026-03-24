@@ -178,7 +178,7 @@ const getAllDeals = async (
 ) => {
   try {
     const skip = (page - 1) * limit;
-    const where = {};
+    const where = { deleted_at: null };
     const now = new Date();
 
     // Search
@@ -814,12 +814,36 @@ const requestEditDeal = async (dealId, userId, message) => {
   }
 };
 
+const deleteDeal = async (id) => {
+  try {
+    const existingDeal = await getdb.deal.findUnique({
+      where: { id: Number(id) },
+    });
+
+    if (!existingDeal) {
+      throw new Error("Deal not found");
+    }
+
+    const updated = await getdb.deal.update({
+      where: { id: Number(id) },
+      data: { deleted_at: new Date() },
+    });
+
+    logger.info(`Deal soft deleted: ${updated.id} ${updated.deal_number}`);
+    return updated;
+  } catch (error) {
+    logger.error(`Failed to delete deal with ID ${id}:`, error.message);
+    throw error;
+  }
+};
+
 module.exports = {
   createDeal,
   getAllDeals,
   getDealById,
   updateDealStatus,
   updateDeal,
-  requestEditDeal
+  requestEditDeal,
+  deleteDeal
 };
 

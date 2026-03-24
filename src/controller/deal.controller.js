@@ -147,11 +147,28 @@ const requestEditDealController = async (req, res) => {
   }
 };
 
+const deleteDealController = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await dealService.deleteDeal(id);
+
+    return res.status(200).json({
+      message: "Deal deleted successfully",
+      data: result,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || "Failed to delete Deal",
+    });
+  }
+};
+
 module.exports = {
   createDealController,
   listDealController,
   getDealControllerById,
   updateDealStatusController,
   updateDealController,
-  requestEditDealController
+  requestEditDealController,
+  deleteDealController
 };

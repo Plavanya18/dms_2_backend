@@ -40,7 +40,7 @@ const defaultRoutes = [
     route: customerRoute
   },
   {
-    path: '/currencypair',
+    path: '/api/currency-pair',
     route: currencyPairRoute,
   },
   {

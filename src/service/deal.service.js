@@ -789,11 +789,35 @@ const updateDeal = async (id, data, userId) => {
 };
 
 
+const requestEditDeal = async (dealId, userId, message) => {
+  try {
+    const deal = await getdb.deal.findUnique({ where: { id: Number(dealId) } });
+    if (!deal) throw new Error("Deal not found");
+
+    const admins = await getdb.user.findMany({ where: { role: "Admin", deleted_at: null } });
+
+    const notifications = admins.map(admin => ({
+      user_id: admin.id,
+      title: "Deal Edit Request",
+      message: `Maker requested edit for Deal #${deal.deal_number}. Message: ${message}`,
+      alert_type: "DEAL_EDIT_REQUEST",
+      reference_id: deal.id,
+    }));
+
+    await getdb.notification.createMany({ data: notifications });
+    return { success: true };
+  } catch (error) {
+    logger.error("Failed to request deal edit:", error.message);
+    throw error;
+  }
+};
+
 module.exports = {
   createDeal,
   getAllDeals,
   getDealById,
   updateDealStatus,
-  updateDeal
+  updateDeal,
+  requestEditDeal
 };
 

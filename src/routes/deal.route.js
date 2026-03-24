@@ -7,5 +7,6 @@ router.get("/", dealController.listDealController);
 router.get("/:id", dealController.getDealControllerById);
 router.put("/:id", dealController.updateDealStatusController);
 router.patch("/:id", dealController.updateDealController);
+router.post("/:id/request-edit", dealController.requestEditDealController);
 
 module.exports = router;

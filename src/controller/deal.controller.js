@@ -128,10 +128,30 @@ const updateDealController = async (req, res) => {
   }
 };
 
+const requestEditDealController = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body;
+    const userId = req.user;
+
+    const result = await dealService.requestEditDeal(Number(id), Number(userId), message);
+
+    return res.status(200).json({
+      message: "Edit request sent successfully",
+      data: result,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || "Failed to send edit request",
+    });
+  }
+};
+
 module.exports = {
   createDealController,
   listDealController,
   getDealControllerById,
   updateDealStatusController,
   updateDealController,
+  requestEditDealController
 };

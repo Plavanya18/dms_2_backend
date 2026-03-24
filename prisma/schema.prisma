@@ -145,6 +145,7 @@ model Deal {
   amount            Decimal
   exchange_rate     Decimal
   amount_to_be_paid Decimal
+  credit_type       String? // "PNBL" or "BNPL"
   remarks           String?
   action_reason     String?
   status            DealStatusEnum

@@ -8,7 +8,10 @@ const os = require("os");
 
 const createDeal = async (data, userId) => {
   try {
-    const today = new Date();
+    const dealDate = data.created_at && !isNaN(Date.parse(data.created_at)) 
+      ? new Date(data.created_at) 
+      : new Date();
+    const today = dealDate;
     const datePart = `${String(today.getDate()).padStart(2, "0")}${String(today.getMonth() + 1).padStart(2, "0")}`;
 
     const customer = await getdb.customer.findUnique({
@@ -84,10 +87,10 @@ const createDeal = async (data, userId) => {
         amount_to_be_paid: data.amount_to_be_paid,
         remarks: data.remarks || null,
         status: data.status,
-        completed_at: data.status === "Completed" ? new Date() : null,
+        completed_at: data.status === "Completed" ? dealDate : null,
         created_by: userId,
-        created_at: new Date(),
-        updated_at: new Date(),
+        created_at: dealDate,
+        updated_at: dealDate,
         receivedItems: {
           create: (data.receivedItems || []).map(item => ({
             price: item.price,
@@ -115,9 +118,10 @@ const createDeal = async (data, userId) => {
 
     // Map to today's reconciliation if it exists
     try {
-      const now = new Date();
-      const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-      const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+      const startOfDay = new Date(dealDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(dealDate);
+      endOfDay.setHours(23, 59, 59, 999);
 
       const reconciliation = await getdb.reconciliation.findFirst({
         where: {

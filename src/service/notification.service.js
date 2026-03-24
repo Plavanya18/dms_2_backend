@@ -153,10 +153,24 @@ const deleteNotifications = async (ids) => {
     });
 };
 
+const createNotification = async (data) => {
+    return await getdb.notification.create({
+        data: {
+            user_id: Number(data.user_id),
+            title: data.type === "success" ? "Deal Edit Approved" : "Deal Edit Rejected",
+            message: data.message,
+            alert_type: "DEAL_EDIT",
+            reference_id: Number(data.reference_id),
+            is_read: false
+        }
+    });
+};
+
 module.exports = {
     syncNotifications,
     getNotifications,
     markAsRead,
     markAsUnread,
-    deleteNotifications
+    deleteNotifications,
+    createNotification
 };

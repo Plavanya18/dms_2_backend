@@ -50,9 +50,20 @@ const deleteNotifications = async (req, res) => {
     }
 };
 
+const createNotification = async (req, res) => {
+    try {
+        const data = req.body;
+        await notificationService.createNotification(data);
+        return res.json({ success: true, message: "Notification created" });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 module.exports = {
     getNotifications,
     markAsRead,
     markAsUnread,
-    deleteNotifications
+    deleteNotifications,
+    createNotification
 };

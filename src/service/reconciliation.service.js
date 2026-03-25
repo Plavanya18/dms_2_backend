@@ -294,61 +294,70 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
         let vaultReduce = 0;
 
         if (isPNBL) {
-            vaultAdd = actualReceived;
-            vaultReduce = fullPaid;
+          vaultAdd = actualReceived;
+          vaultReduce = fullPaid;
         } else if (isBNPL) {
-            vaultAdd = fullReceived;
-            vaultReduce = actualPaid;
+          vaultAdd = fullReceived;
+          vaultReduce = actualPaid;
         } else {
-            vaultAdd = actualReceived;
-            vaultReduce = actualPaid;
+          vaultAdd = actualReceived;
+          vaultReduce = actualPaid;
         }
 
         if (buyCid) {
-            if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
-            currencyTotals[buyCid].expected += vaultAdd;
+          if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+          currencyTotals[buyCid].expected += vaultAdd;
         }
         if (sellCid) {
-            if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
-            currencyTotals[sellCid].expected -= vaultReduce;
+          if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+          currencyTotals[sellCid].expected -= vaultReduce;
         }
       } else {
-        if (hasMatchingItems) {
+        const buyCid = deal.buy_currency_id;
+        const sellCid = deal.sell_currency_id;
+        const amount = Number(deal.amount || 0);
+        const amountToBePaid = Number(deal.amount_to_be_paid || 0);
+
+        if (matchingReceivedItems.length > 0) {
+          // Use actual received items
           matchingReceivedItems.forEach(item => {
             const cid = item.currency_id;
             if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
             currencyTotals[cid].expected += Number(item.total || 0);
           });
+        } else if (isSameDayDeal) {
+          // No received items — use the full deal amount for the received side
+          if (deal.deal_type === "buy") {
+            if (buyCid) {
+              if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+              currencyTotals[buyCid].expected += amount;
+            }
+          } else if (deal.deal_type === "sell") {
+            if (buyCid) {
+              if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+              currencyTotals[buyCid].expected += amountToBePaid;
+            }
+          }
+        }
+
+        if (matchingPaidItems.length > 0) {
+          // Use actual paid items
           matchingPaidItems.forEach(item => {
             const cid = item.currency_id;
             if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
             currencyTotals[cid].expected -= Number(item.total || 0);
           });
-        } else {
-          if (isSameDayDeal) {
-            const buyCid = deal.buy_currency_id;
-            const sellCid = deal.sell_currency_id;
-            const amount = Number(deal.amount || 0);
-            const amountToBePaid = Number(deal.amount_to_be_paid || 0);
-
-            if (deal.deal_type === "buy") {
-              if (buyCid) {
-                if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
-                currencyTotals[buyCid].expected += amount;
-              }
-              if (sellCid) {
-                if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
-                currencyTotals[sellCid].expected -= amountToBePaid;
-              }
-            } else if (deal.deal_type === "sell") {
-              if (buyCid) {
-                if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
-                currencyTotals[buyCid].expected += amountToBePaid;
-              }
-              if (sellCid) {
-                if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
-                currencyTotals[sellCid].expected -= amount;
-              }
+        } else if (isSameDayDeal) {
+          // No paid items — use the full deal amount for the paid side
+          if (deal.deal_type === "buy") {
+            if (sellCid) {
+              if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+              currencyTotals[sellCid].expected -= amountToBePaid;
+            }
+          } else if (deal.deal_type === "sell") {
+            if (sellCid) {
+              if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+              currencyTotals[sellCid].expected -= amount;
             }
           }
         }
@@ -511,8 +520,8 @@ const getAllReconciliations = async ({
                 customer: { select: { name: true } },
                 buyCurrency: { select: { id: true, code: true, name: true } },
                 sellCurrency: { select: { id: true, code: true, name: true } },
-                receivedItems: true,
-                paidItems: true
+                receivedItems: { include: { currency: { select: { id: true, code: true } } } },
+                paidItems: { include: { currency: { select: { id: true, code: true } } } }
               }
             }
           }
@@ -901,19 +910,19 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
 
         if (isPNBL) {
           if (deal.deal_type === "buy") {
-            foreignAmount = actualReceived; 
-            tzsAmount = scheduledTzs;       
+            foreignAmount = actualReceived;
+            tzsAmount = scheduledTzs;
           } else {
-            foreignAmount = scheduledAmount; 
-            tzsAmount = actualReceived;      
+            foreignAmount = scheduledAmount;
+            tzsAmount = actualReceived;
           }
         } else if (isBNPL) {
           if (deal.deal_type === "buy") {
-            foreignAmount = scheduledAmount; 
-            tzsAmount = actualPaid;          
+            foreignAmount = scheduledAmount;
+            tzsAmount = actualPaid;
           } else {
-            foreignAmount = actualPaid;      
-            tzsAmount = scheduledTzs;        
+            foreignAmount = actualPaid;
+            tzsAmount = scheduledTzs;
           }
         } else {
           if (deal.deal_type === "buy") {

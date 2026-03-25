@@ -164,17 +164,44 @@ const startReconciliation = async (id, userId) => {
     const endOfDay = new Date(reconciliation.created_at);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Find all deals created on that day that are NOT already associated with a reconciliation
+    // Find all deals that were created today OR had payment activity today, 
+    // and are NOT already associated with THIS reconciliation
     const deals = await getdb.deal.findMany({
       where: {
-        created_at: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-        reconciliations: {
-          none: {},
-        },
         created_by: userId,
+        OR: [
+          {
+            created_at: {
+              gte: startOfDay,
+              lte: endOfDay,
+            },
+          },
+          {
+            receivedItems: {
+              some: {
+                created_at: {
+                  gte: startOfDay,
+                  lte: endOfDay,
+                },
+              },
+            },
+          },
+          {
+            paidItems: {
+              some: {
+                created_at: {
+                  gte: startOfDay,
+                  lte: endOfDay,
+                },
+              },
+            },
+          },
+        ],
+        reconciliations: {
+          none: {
+            reconciliation_id: reconciliation.id
+          },
+        },
       },
     });
 
@@ -230,67 +257,130 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
       currencyTotals[cid].actual += Number(entry.amount || 0);
     });
 
+    const reconDate = updatedReconciliation.created_at ? new Date(updatedReconciliation.created_at).toISOString().split('T')[0] : "";
+
     updatedReconciliation.deals.forEach(rd => {
       const deal = rd.deal;
-      const hasItems = (deal.receivedItems?.length > 0 || deal.paidItems?.length > 0);
+      const dealDate = deal.created_at ? new Date(deal.created_at).toISOString().split('T')[0] : "";
+      const isSameDayDeal = dealDate === reconDate;
 
-      if (hasItems) {
-        deal.receivedItems.forEach(item => {
-          const cid = item.currency_id;
-          if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
-          currencyTotals[cid].expected += Number(item.total || 0);
-        });
-        deal.paidItems.forEach(item => {
-          const cid = item.currency_id;
-          if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
-          currencyTotals[cid].expected -= Number(item.total || 0);
-        });
-      } else {
-        const buyCid = deal.buy_currency_id;
-        const sellCid = deal.sell_currency_id;
+      const matchingReceivedItems = (deal.receivedItems || []).filter(item => {
+        if (!item.created_at) return true;
+        return new Date(item.created_at).toISOString().split('T')[0] === reconDate;
+      });
+      const matchingPaidItems = (deal.paidItems || []).filter(item => {
+        if (!item.created_at) return true;
+        return new Date(item.created_at).toISOString().split('T')[0] === reconDate;
+      });
+
+      const hasMatchingItems = matchingReceivedItems.length > 0 || matchingPaidItems.length > 0;
+
+      if (deal.status === "Pending") {
+        const isPNBL = deal.credit_type === 'PNBL';
+        const isBNPL = deal.credit_type === 'BNPL';
+
         const amount = Number(deal.amount || 0);
         const amountToBePaid = Number(deal.amount_to_be_paid || 0);
+        const buyCid = deal.buy_currency_id;
+        const sellCid = deal.sell_currency_id;
 
-        if (deal.deal_type === "buy") {
-          if (buyCid) {
+        const fullReceived = (deal.deal_type === "sell" ? amountToBePaid : amount) * (isSameDayDeal ? 1 : 0);
+        const fullPaid = (deal.deal_type === "sell" ? amount : amountToBePaid) * (isSameDayDeal ? 1 : 0);
+
+        const actualReceived = matchingReceivedItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
+        const actualPaid = matchingPaidItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
+
+        let vaultAdd = 0;
+        let vaultReduce = 0;
+
+        if (isPNBL) {
+            vaultAdd = actualReceived;
+            vaultReduce = fullPaid;
+        } else if (isBNPL) {
+            vaultAdd = fullReceived;
+            vaultReduce = actualPaid;
+        } else {
+            vaultAdd = actualReceived;
+            vaultReduce = actualPaid;
+        }
+
+        if (buyCid) {
             if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
-            currencyTotals[buyCid].expected += amount;
-          }
-          if (sellCid) {
+            currencyTotals[buyCid].expected += vaultAdd;
+        }
+        if (sellCid) {
             if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
-            currencyTotals[sellCid].expected -= amountToBePaid;
-          }
-        } else if (deal.deal_type === "sell") {
-          if (buyCid) {
-            if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
-            currencyTotals[buyCid].expected += amountToBePaid;
-          }
-          if (sellCid) {
-            if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
-            currencyTotals[sellCid].expected -= amount;
+            currencyTotals[sellCid].expected -= vaultReduce;
+        }
+      } else {
+        if (hasMatchingItems) {
+          matchingReceivedItems.forEach(item => {
+            const cid = item.currency_id;
+            if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+            currencyTotals[cid].expected += Number(item.total || 0);
+          });
+          matchingPaidItems.forEach(item => {
+            const cid = item.currency_id;
+            if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+            currencyTotals[cid].expected -= Number(item.total || 0);
+          });
+        } else {
+          if (isSameDayDeal) {
+            const buyCid = deal.buy_currency_id;
+            const sellCid = deal.sell_currency_id;
+            const amount = Number(deal.amount || 0);
+            const amountToBePaid = Number(deal.amount_to_be_paid || 0);
+
+            if (deal.deal_type === "buy") {
+              if (buyCid) {
+                if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+                currencyTotals[buyCid].expected += amount;
+              }
+              if (sellCid) {
+                if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+                currencyTotals[sellCid].expected -= amountToBePaid;
+              }
+            } else if (deal.deal_type === "sell") {
+              if (buyCid) {
+                if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
+                currencyTotals[buyCid].expected += amountToBePaid;
+              }
+              if (sellCid) {
+                if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
+                currencyTotals[sellCid].expected -= amount;
+              }
+            }
           }
         }
       }
     });
 
-    let finalStatus = "In_Progress";
-    const hasClosingData = updatedReconciliation.closingEntries && updatedReconciliation.closingEntries.length > 0 && updatedReconciliation.closingEntries.some(e => Number(e.amount) > 0);
+    // Automatically update closing entries to match expected book balance
+    await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
 
-    if (hasClosingData) {
-      finalStatus = "Tallied";
-      let hasExcess = false;
-      let hasShort = false;
+    const updatedClosingEntries = [];
+    Object.keys(currencyTotals).forEach(cid => {
+      const expectedAmount = currencyTotals[cid].expected;
+      // We also save negative amounts if it goes negative, although normally it shouldn't
+      // We save any non-zero expected amount
+      if (Math.abs(expectedAmount) > 0.01) {
+        updatedClosingEntries.push({
+          reconciliation_id: Number(id),
+          currency_id: Number(cid),
+          amount: Math.round(expectedAmount), // ensure integer/rounded representation
+          quantity: 1,
+          denomination: Math.round(expectedAmount),
+          exchange_rate: 1.0
+        });
+      }
+    });
 
-      Object.values(currencyTotals).forEach(v => {
-        const diff = v.actual - v.expected;
-        if (Math.abs(diff) < 0.01) return;
-        if (diff > 0) hasExcess = true;
-        if (diff < 0) hasShort = true;
-      });
-
-      if (hasShort) finalStatus = "Short";
-      else if (hasExcess) finalStatus = "Excess";
+    if (updatedClosingEntries.length > 0) {
+      await getdb.reconciliationClosing.createMany({ data: updatedClosingEntries });
     }
+
+    // Because actual is forcibly set to expected, it's Tallied (unless there are no entries)
+    let finalStatus = updatedClosingEntries.length > 0 ? "Tallied" : "In_Progress";
 
     await getdb.reconciliation.update({
       where: { id: updatedReconciliation.id },
@@ -779,26 +869,60 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
 
     const currencyStats = {};
 
+    const reconDate = rec.created_at ? new Date(rec.created_at).toISOString().split('T')[0] : "";
+
     // PROCESS DEALS
     for (const dealRec of rec.deals) {
       const deal = dealRec.deal;
+      const dealDate = deal.created_at ? new Date(deal.created_at).toISOString().split('T')[0] : "";
+      const isSameDayDeal = dealDate === reconDate;
 
-      let scheduledAmount = Number(deal.amount || 0);
-      let scheduledTzs = Number(deal.amount_to_be_paid || 0);
+      const matchingReceivedItems = (deal.receivedItems || []).filter(item => {
+        if (!item.created_at) return true;
+        return new Date(item.created_at).toISOString().split('T')[0] === reconDate;
+      });
+      const matchingPaidItems = (deal.paidItems || []).filter(item => {
+        if (!item.created_at) return true;
+        return new Date(item.created_at).toISOString().split('T')[0] === reconDate;
+      });
+
+      let scheduledAmount = Number(deal.amount || 0) * (isSameDayDeal ? 1 : 0);
+      let scheduledTzs = Number(deal.amount_to_be_paid || 0) * (isSameDayDeal ? 1 : 0);
 
       let foreignAmount = scheduledAmount;
       let tzsAmount = scheduledTzs;
 
       if (deal.status === "Pending") {
-        const totalReceived = (deal.receivedItems || []).reduce((sum, i) => sum + Number(i.total || 0), 0);
-        const totalPaid = (deal.paidItems || []).reduce((sum, i) => sum + Number(i.total || 0), 0);
+        const isPNBL = deal.credit_type === 'PNBL';
+        const isBNPL = deal.credit_type === 'BNPL';
 
-        if (deal.deal_type === "buy") {
-          foreignAmount = totalReceived;
-          tzsAmount = totalPaid;
+        const actualReceived = matchingReceivedItems.reduce((sum, i) => sum + Number(i.total || 0), 0);
+        const actualPaid = matchingPaidItems.reduce((sum, i) => sum + Number(i.total || 0), 0);
+
+        if (isPNBL) {
+          if (deal.deal_type === "buy") {
+            foreignAmount = actualReceived; 
+            tzsAmount = scheduledTzs;       
+          } else {
+            foreignAmount = scheduledAmount; 
+            tzsAmount = actualReceived;      
+          }
+        } else if (isBNPL) {
+          if (deal.deal_type === "buy") {
+            foreignAmount = scheduledAmount; 
+            tzsAmount = actualPaid;          
+          } else {
+            foreignAmount = actualPaid;      
+            tzsAmount = scheduledTzs;        
+          }
         } else {
-          foreignAmount = totalPaid;
-          tzsAmount = totalReceived;
+          if (deal.deal_type === "buy") {
+            foreignAmount = actualReceived;
+            tzsAmount = actualPaid;
+          } else {
+            foreignAmount = actualPaid;
+            tzsAmount = actualReceived;
+          }
         }
 
         totalForeignDifference += (scheduledAmount - foreignAmount);

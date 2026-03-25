@@ -782,6 +782,39 @@ const updateDeal = async (id, data, userId) => {
 
     logger.info(`Deal updated: ${updatedDeal.deal_number}`);
 
+    // Automatically Sync Reconciliations
+    try {
+      const { startReconciliation, calculateAndSetReconciliationStatus } = require("./reconciliation.service");
+      
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      
+      const todayRecon = await getdb.reconciliation.findFirst({
+        where: {
+          created_by: userId,
+          created_at: { gte: todayStart, lte: todayEnd }
+        }
+      });
+      
+      if (todayRecon) {
+        await startReconciliation(todayRecon.id, userId);
+      }
+      
+      const mappedRecons = await getdb.reconciliationDeal.findMany({
+        where: { deal_id: Number(id) }
+      });
+      
+      for (const mapping of mappedRecons) {
+        if (!todayRecon || mapping.reconciliation_id !== todayRecon.id) {
+          await calculateAndSetReconciliationStatus(mapping.reconciliation_id, userId);
+        }
+      }
+    } catch (syncError) {
+      logger.error("Failed to sync reconciliations after deal update:", syncError.message);
+    }
+
     return updatedDeal;
 
   } catch (error) {

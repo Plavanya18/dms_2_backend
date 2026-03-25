@@ -9,15 +9,62 @@ const os = require("os");
 const getCurrentDayReconciliation = async (userId) => {
   try {
     const now = new Date();
-    const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
 
-    const reconciliation = await getdb.reconciliation.findFirst({
+    // Check if today's reconciliation already exists
+    const existing = await getdb.reconciliation.findFirst({
       where: {
         created_by: userId,
-        created_at: {
-          gte: startOfDay,
-          lte: endOfDay,
+        created_at: { gte: startOfDay, lte: endOfDay },
+      },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: { include: { deal: true } },
+      },
+    });
+
+    if (existing) return existing;
+
+    // No today's reconciliation — look for the most recent previous one with closing entries
+    const previous = await getdb.reconciliation.findFirst({
+      where: {
+        created_by: userId,
+        created_at: { lt: startOfDay },
+        closingEntries: { some: {} },
+      },
+      orderBy: { created_at: "desc" },
+      include: {
+        closingEntries: { include: { currency: true } },
+      },
+    });
+
+    if (!previous || previous.closingEntries.length === 0) {
+      // First time ever — return null so the gate shows for manual entry
+      return null;
+    }
+
+    // Auto-create today's reconciliation using yesterday's closing as opening
+    logger.info(`Auto-creating today's reconciliation for user ${userId} from previous closing (recon ID ${previous.id})`);
+
+    const newRecon = await getdb.reconciliation.create({
+      data: {
+        created_by: userId,
+        status: "In_Progress",
+        created_at: new Date(),
+        updated_at: new Date(),
+        openingEntries: {
+          create: previous.closingEntries.map((e) => ({
+            denomination: e.denomination || e.amount || 0,
+            quantity: e.quantity !== undefined && e.quantity !== null ? e.quantity : 1,
+            amount: e.amount,
+            exchange_rate: e.exchange_rate || 1.0,
+            currency_id: e.currency_id,
+          })),
         },
       },
       include: {
@@ -28,9 +75,21 @@ const getCurrentDayReconciliation = async (userId) => {
       },
     });
 
-    return reconciliation;
+    // Immediately sync today's deals into the new reconciliation
+    await mapDailyDeals(newRecon.id, userId);
+    await calculateAndSetReconciliationStatus(newRecon.id, userId);
+
+    return await getdb.reconciliation.findUnique({
+      where: { id: newRecon.id },
+      include: {
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
+        notes: true,
+        deals: { include: { deal: true } },
+      },
+    });
   } catch (error) {
-    logger.error("Failed to fetch current day reconciliation:", error);
+    logger.error("Failed to fetch/create current day reconciliation:", error);
     throw error;
   }
 };
@@ -364,39 +423,44 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
       }
     });
 
-    // Automatically update closing entries to match expected book balance
-    await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
+    // Automatically update closing entries to match expected book balance ONLY if deals exist
+    // This allows start-of-day (login time) to stay with empty closing vault until business activity starts.
+    let hasDeals = (updatedReconciliation.deals || []).length > 0;
+    let finalClosingEntriesFound = (updatedReconciliation.closingEntries || []).length > 0;
 
-    const updatedClosingEntries = [];
-    Object.keys(currencyTotals).forEach(cid => {
-      const expectedAmount = currencyTotals[cid].expected;
-      // We also save negative amounts if it goes negative, although normally it shouldn't
-      // We save any non-zero expected amount
-      if (Math.abs(expectedAmount) > 0.01) {
-        updatedClosingEntries.push({
-          reconciliation_id: Number(id),
-          currency_id: Number(cid),
-          amount: Math.round(expectedAmount), // ensure integer/rounded representation
-          quantity: 1,
-          denomination: Math.round(expectedAmount),
-          exchange_rate: 1.0
-        });
+    if (hasDeals) {
+      await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
+
+      const updatedClosingEntriesArr = [];
+      Object.keys(currencyTotals).forEach(cid => {
+        const expectedAmount = currencyTotals[cid].expected;
+        if (Math.abs(expectedAmount) > 0.01) {
+          updatedClosingEntriesArr.push({
+            reconciliation_id: Number(id),
+            currency_id: Number(cid),
+            amount: Math.round(expectedAmount),
+            quantity: 1,
+            denomination: Math.round(expectedAmount),
+            exchange_rate: 1.0
+          });
+        }
+      });
+
+      if (updatedClosingEntriesArr.length > 0) {
+        await getdb.reconciliationClosing.createMany({ data: updatedClosingEntriesArr });
+        finalClosingEntriesFound = true;
       }
-    });
-
-    if (updatedClosingEntries.length > 0) {
-      await getdb.reconciliationClosing.createMany({ data: updatedClosingEntries });
     }
 
-    // Because actual is forcibly set to expected, it's Tallied (unless there are no entries)
-    let finalStatus = updatedClosingEntries.length > 0 ? "Tallied" : "In_Progress";
+    // Because actual is potentially set to expected, it's Tallied if we have closing records
+    let finalStatus = finalClosingEntriesFound ? "Tallied" : "In_Progress";
 
     await getdb.reconciliation.update({
       where: { id: updatedReconciliation.id },
       data: { status: finalStatus, updated_at: new Date() }
     });
 
-    logger.info(`Reconciliation status recalculated for ID ${id}. Final status: ${finalStatus}.`);
+    logger.info(`Reconciliation status recalculated for ID ${id}. Final status: ${finalStatus}. Deals present: ${hasDeals}.`);
 
     return await getdb.reconciliation.findUnique({
       where: { id: updatedReconciliation.id },

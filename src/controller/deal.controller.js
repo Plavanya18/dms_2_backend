@@ -150,7 +150,7 @@ const requestEditDealController = async (req, res) => {
 const deleteDealController = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await dealService.deleteDeal(id);
+    const result = await dealService.deleteDeal(Number(id), req.user);
 
     return res.status(200).json({
       message: "Deal deleted successfully",

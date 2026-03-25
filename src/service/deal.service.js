@@ -847,7 +847,7 @@ const requestEditDeal = async (dealId, userId, message) => {
   }
 };
 
-const deleteDeal = async (id) => {
+const deleteDeal = async (id, userId) => {
   try {
     const existingDeal = await getdb.deal.findUnique({
       where: { id: Number(id) },
@@ -857,12 +857,33 @@ const deleteDeal = async (id) => {
       throw new Error("Deal not found");
     }
 
+    // Capture associated reconciliation IDs before deleting mappings
+    const mappedRecons = await getdb.reconciliationDeal.findMany({
+      where: { deal_id: Number(id) }
+    });
+
+    // Remove deal from mappings
+    await getdb.reconciliationDeal.deleteMany({
+      where: { deal_id: Number(id) }
+    });
+
+    // Soft delete the deal
     const updated = await getdb.deal.update({
       where: { id: Number(id) },
       data: { deleted_at: new Date() },
     });
 
-    logger.info(`Deal soft deleted: ${updated.id} ${updated.deal_number}`);
+    // Recalculate status for all affected reconciliations
+    try {
+      const { calculateAndSetReconciliationStatus } = require("./reconciliation.service");
+      for (const mapping of mappedRecons) {
+        await calculateAndSetReconciliationStatus(mapping.reconciliation_id, userId);
+      }
+    } catch (syncError) {
+      logger.error("Failed to update reconciliation after deal delete:", syncError.message);
+    }
+
+    logger.info(`Deal soft deleted and removed from reconciliation: ${updated.id} ${updated.deal_number}`);
     return updated;
   } catch (error) {
     logger.error(`Failed to delete deal with ID ${id}:`, error.message);

@@ -173,8 +173,9 @@ const updateUser = async (id, data) => {
     if (data.password) {
       const hashedPassword = await bcrypt.hash(data.password, 10);
       updateData.password = hashedPassword;
-      delete updateData.password; 
     }
+
+    updateData.updated_at = new Date();
 
     const user = await getdb.user.update({
       where: { id: Number(id) },

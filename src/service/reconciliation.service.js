@@ -585,6 +585,7 @@ const getAllReconciliations = async ({
                 customer: { select: { name: true } },
                 buyCurrency: { select: { id: true, code: true, name: true } },
                 sellCurrency: { select: { id: true, code: true, name: true } },
+                createdBy: { select: { id: true, full_name: true, email: true } },
                 receivedItems: { include: { currency: { select: { id: true, code: true } } } },
                 paidItems: { include: { currency: { select: { id: true, code: true } } } }
               }

@@ -486,7 +486,8 @@ const getAllReconciliations = async ({
   status,
   format,
   userId = null,
-  roleName = ""
+  roleName = "",
+  userOnly = false
 }) => {
   try {
     const skip = (page - 1) * limit;
@@ -557,7 +558,7 @@ const getAllReconciliations = async ({
       where.status = status;
     }
 
-    if (roleName !== "Admin" && userId) {
+    if ((roleName !== "Admin" || userOnly) && userId) {
       where.created_by = Number(userId);
     }
 

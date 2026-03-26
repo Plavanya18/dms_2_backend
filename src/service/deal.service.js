@@ -174,7 +174,8 @@ const getAllDeals = async (
   customer_id = "",
   dealType = "",
   userId = null,
-  roleName = ""
+  roleName = "",
+  userOnly = false
 ) => {
   try {
     const skip = (page - 1) * limit;
@@ -190,7 +191,7 @@ const getAllDeals = async (
     }
 
     // Role-based filtering
-    if (roleName !== "Admin" && userId) {
+    if ((roleName !== "Admin" || userOnly) && userId) {
       where.created_by = Number(userId);
     }
 
@@ -282,8 +283,7 @@ const getAllDeals = async (
     endToday.setHours(23, 59, 59, 999);
 
     const reconciliationWhere = {};
-
-    if (roleName !== "Admin" && userId) {
+    if ((roleName !== "Admin" || userOnly) && userId) {
       reconciliationWhere.created_by = Number(userId);
     }
 

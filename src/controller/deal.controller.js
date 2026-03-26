@@ -32,7 +32,8 @@ const listDealController = async (req, res) => {
       endDate = "",
       format = "",
       customer_id = "",
-      dealType = ""
+      dealType = "",
+      userOnly = false
     } = req.query;
 
     const result = await dealService.getAllDeals(
@@ -50,7 +51,8 @@ const listDealController = async (req, res) => {
       customer_id,
       dealType,
       req.user,
-      req.roleName
+      req.roleName,
+      userOnly === "true" || userOnly === true
     );
 
     if (result.filePath) {

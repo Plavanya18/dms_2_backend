@@ -35,6 +35,7 @@ const getAllReconciliations = async (req, res) => {
       endDate,
       status,
       format,
+      userOnly = false,
     } = req.query;
 
     const pageNum = Number(page);
@@ -49,7 +50,8 @@ const getAllReconciliations = async (req, res) => {
       status,
       format,
       userId: req.user,
-      roleName: req.roleName
+      roleName: req.roleName,
+      userOnly: userOnly === "true" || userOnly === true
     });
 
     if (result.filePath) {

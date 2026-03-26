@@ -111,7 +111,7 @@ const mapDailyDeals = async (reconciliationId, userId) => {
       where: {
         created_at: { gte: startOfDay, lte: endOfDay },
         reconciliations: { none: {} },
-        created_by: userId,
+        created_by: reconciliation.created_by,
       },
     });
 
@@ -227,7 +227,7 @@ const startReconciliation = async (id, userId) => {
     // and are NOT already associated with THIS reconciliation
     const deals = await getdb.deal.findMany({
       where: {
-        created_by: userId,
+        created_by: reconciliation.created_by,
         OR: [
           {
             created_at: {

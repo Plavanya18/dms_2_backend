@@ -112,6 +112,7 @@ const mapDailyDeals = async (reconciliationId, userId) => {
         created_at: { gte: startOfDay, lte: endOfDay },
         reconciliations: { none: {} },
         created_by: reconciliation.created_by,
+        deleted_at: null,
       },
     });
 
@@ -261,6 +262,7 @@ const startReconciliation = async (id, userId) => {
             reconciliation_id: reconciliation.id
           },
         },
+        deleted_at: null,
       },
     });
 

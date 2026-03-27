@@ -697,10 +697,6 @@ const getAllReconciliations = async ({
         if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
         else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
-
-      console.log("closingRate", closingRate)
-      console.log("closingUSD", closingUSD)
-      console.log("closingTZS", closingTZS)
       
       const totalClosingValue = closingUSD * closingRate + closingTZS;
 

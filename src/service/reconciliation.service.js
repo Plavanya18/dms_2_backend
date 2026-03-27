@@ -690,7 +690,7 @@ const getAllReconciliations = async ({
         else if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
 
-      const totalOpeningValue = openingUSD * openingRate + openingTZS;
+      const totalOpeningValue = openingUSD * openingRate;
 
       let closingUSD = 0, closingTZS = 0;
       rec.closingEntries.forEach(c => {
@@ -698,7 +698,7 @@ const getAllReconciliations = async ({
         else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
 
-      const totalClosingValue = closingUSD * closingRate + closingTZS;
+      const totalClosingValue = closingUSD * closingRate;
 
       const totalValueOut = totalTzsPaid + (totalForeignSold * closingRate);
       const totalValueIn = totalTzsReceived + (totalForeignBought * closingRate);

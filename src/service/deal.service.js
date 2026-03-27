@@ -124,14 +124,15 @@ const createDeal = async (data, userId) => {
       const endOfDay = new Date(dealDate);
       endOfDay.setHours(23, 59, 59, 999);
 
+      // Find the shared reconciliation for today (any user's recon)
       const reconciliation = await getdb.reconciliation.findFirst({
         where: {
-          created_by: userId,
           created_at: {
             gte: startOfDay,
             lte: endOfDay,
           },
         },
+        orderBy: { created_at: "asc" },
       });
 
       if (reconciliation) {
@@ -190,8 +191,8 @@ const getAllDeals = async (
       ];
     }
 
-    // Role-based filtering
-    if ((roleName !== "Admin" || userOnly) && userId) {
+    // Role-based filtering: only filter by creator when explicitly requested (userOnly mode)
+    if (userOnly && userId) {
       where.created_by = Number(userId);
     }
 
@@ -282,10 +283,8 @@ const getAllDeals = async (
     const endToday = new Date();
     endToday.setHours(23, 59, 59, 999);
 
+    // Always fetch the shared (all-user) reconciliation for opening balance stats
     const reconciliationWhere = {};
-    if ((roleName !== "Admin" || userOnly) && userId) {
-      reconciliationWhere.created_by = Number(userId);
-    }
 
     const reconciliations = await getdb.reconciliation.findMany({
       where: reconciliationWhere,
@@ -642,7 +641,7 @@ const generateDealsPDF = async (deals) => {
   });
 };
 
-const getDealById = async (id, userId = null, roleName = "") => {
+const getDealById = async (id, roleName = "") => {
   try {
     const deal = await getdb.deal.findUnique({
       where: { id: Number(id) },
@@ -656,11 +655,6 @@ const getDealById = async (id, userId = null, roleName = "") => {
         sellCurrency: { select: { id: true, code: true, name: true } },
       },
     });
-
-    if (deal && roleName === "Maker" && deal.created_by !== userId) {
-      throw new Error("Access denied. You can only view your own deals.");
-    }
-
     return deal;
 
   } catch (error) {
@@ -791,11 +785,12 @@ const updateDeal = async (id, data, userId) => {
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
       
+      // Find the shared reconciliation for today (any user's recon)
       const todayRecon = await getdb.reconciliation.findFirst({
         where: {
-          created_by: userId,
           created_at: { gte: todayStart, lte: todayEnd }
-        }
+        },
+        orderBy: { created_at: "asc" },
       });
       
       if (todayRecon) {

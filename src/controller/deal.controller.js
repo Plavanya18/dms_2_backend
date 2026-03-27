@@ -75,7 +75,7 @@ const listDealController = async (req, res) => {
 const getDealControllerById = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await dealService.getDealById(Number(id), req.user, req.roleName);
+    const result = await dealService.getDealById(Number(id), req.roleName);
 
     if (!result) {
       return res.status(404).json({ message: "Deal not found" });

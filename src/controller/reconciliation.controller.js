@@ -49,7 +49,7 @@ const getAllReconciliations = async (req, res) => {
       endDate,
       status,
       format,
-      userId: req.user,
+      // userId: req.user,
       roleName: req.roleName,
       userOnly: userOnly === "true" || userOnly === true
     });

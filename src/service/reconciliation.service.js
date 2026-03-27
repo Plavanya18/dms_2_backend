@@ -14,10 +14,9 @@ const getCurrentDayReconciliation = async (userId) => {
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Check if today's reconciliation already exists
+    // Check if today's shared reconciliation already exists (any user's recon for today)
     const existing = await getdb.reconciliation.findFirst({
       where: {
-        created_by: userId,
         created_at: { gte: startOfDay, lte: endOfDay },
       },
       include: {
@@ -30,10 +29,9 @@ const getCurrentDayReconciliation = async (userId) => {
 
     if (existing) return existing;
 
-    // No today's reconciliation — look for the most recent previous one with closing entries
+    // No today's reconciliation — look for the most recent previous shared one with closing entries
     const previous = await getdb.reconciliation.findFirst({
       where: {
-        created_by: userId,
         created_at: { lt: startOfDay },
         closingEntries: { some: {} },
       },
@@ -111,7 +109,6 @@ const mapDailyDeals = async (reconciliationId, userId) => {
       where: {
         created_at: { gte: startOfDay, lte: endOfDay },
         reconciliations: { none: {} },
-        created_by: reconciliation.created_by,
         deleted_at: null,
       },
     });
@@ -134,8 +131,8 @@ const mapDailyDeals = async (reconciliationId, userId) => {
 
 const createReconciliation = async (data, userId) => {
   try {
-    // Check if reconciliation already exists for today
-    const existing = await getCurrentDayReconciliation(userId);
+    // Check if a shared reconciliation already exists for today (global, not user-specific)
+    const existing = await getCurrentDayReconciliation(null);
 
     const hasOpening = Array.isArray(data.openingEntries) && data.openingEntries.length > 0;
     const hasClosing = Array.isArray(data.closingEntries) && data.closingEntries.length > 0;
@@ -224,11 +221,10 @@ const startReconciliation = async (id, userId) => {
     const endOfDay = new Date(reconciliation.created_at);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Find all deals that were created today OR had payment activity today, 
-    // and are NOT already associated with THIS reconciliation
+    // Find all deals that were created today OR had payment activity today,
+    // and are NOT already associated with THIS reconciliation (shared across all users)
     const deals = await getdb.deal.findMany({
       where: {
-        created_by: reconciliation.created_by,
         OR: [
           {
             created_at: {
@@ -558,10 +554,6 @@ const getAllReconciliations = async ({
 
     if (status) {
       where.status = status;
-    }
-
-    if ((roleName !== "Admin" || userOnly) && userId) {
-      where.created_by = Number(userId);
     }
 
     if (start && end) {
@@ -931,10 +923,8 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
 
     if (!rec) throw new Error("Reconciliation not found");
 
-    if (roleName !== "Admin" && rec.created_by !== Number(userId)) {
-      throw new Error("Access denied. You can only view your own reconciliations.");
-    }
-
+    // Reconciliation is now shared across all users
+    
     // AGGREGATION VARIABLES
     let totalTzsPaid = 0;
     let totalTzsReceived = 0;

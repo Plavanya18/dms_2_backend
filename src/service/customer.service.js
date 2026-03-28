@@ -184,9 +184,9 @@ const getCustomerById = async (id) => {
       const sellAmount = isBuy ? Number(deal.amount_to_be_paid || 0) : Number(deal.amount || 0);
 
       const date = new Date(deal.created_at);
-      const formattedDate = `${date.getFullYear()}/${(date.getMonth() + 1)
+      const formattedDate = `${date.getUTCFullYear()}/${(date.getUTCMonth() + 1)
         .toString()
-        .padStart(2, "0")}/${date.getDate().toString().padStart(2, "0")}`;
+        .padStart(2, "0")}/${date.getUTCDate().toString().padStart(2, "0")}`;
 
       return {
         id: deal.id,

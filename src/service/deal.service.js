@@ -8,11 +8,11 @@ const os = require("os");
 
 const createDeal = async (data, userId) => {
   try {
-    const dealDate = data.created_at && !isNaN(Date.parse(data.created_at)) 
-      ? new Date(data.created_at) 
+    const dealDate = data.created_at && !isNaN(Date.parse(data.created_at))
+      ? new Date(data.created_at)
       : new Date();
     const today = dealDate;
-    const datePart = `${String(today.getDate()).padStart(2, "0")}${String(today.getMonth() + 1).padStart(2, "0")}`;
+    const datePart = `${String(today.getUTCDate()).padStart(2, "0")}${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
 
     const customer = await getdb.customer.findUnique({
       where: { id: data.customer_id },
@@ -513,9 +513,9 @@ const capitalizeWords = (str = "") => {
 
 const formatDateDDMMYYYY = (date) => {
   const d = date instanceof Date ? date : new Date(date);
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const year = d.getFullYear();
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const year = d.getUTCFullYear();
   return `${day}/${month}/${year}`;
 };
 
@@ -615,10 +615,9 @@ const generateDealsPDF = async (deals) => {
     doc.fontSize(12).text(`ID: ${d.id}`);
     doc.text(`Deal Number: ${d.deal_number}`);
     doc.text(
-      `Deal Type: ${
-        d.deal_type
-          ? d.deal_type.charAt(0).toUpperCase() + d.deal_type.slice(1)
-          : ""
+      `Deal Type: ${d.deal_type
+        ? d.deal_type.charAt(0).toUpperCase() + d.deal_type.slice(1)
+        : ""
       }`
     );
     doc.text(`Customer Name: ${d.customer?.name || ""}`);
@@ -779,12 +778,12 @@ const updateDeal = async (id, data, userId) => {
     // Automatically Sync Reconciliations
     try {
       const { startReconciliation, calculateAndSetReconciliationStatus } = require("./reconciliation.service");
-      
+
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
-      
+
       // Find the shared reconciliation for today (any user's recon)
       const todayRecon = await getdb.reconciliation.findFirst({
         where: {
@@ -792,15 +791,15 @@ const updateDeal = async (id, data, userId) => {
         },
         orderBy: { created_at: "asc" },
       });
-      
+
       if (todayRecon) {
         await startReconciliation(todayRecon.id, userId);
       }
-      
+
       const mappedRecons = await getdb.reconciliationDeal.findMany({
         where: { deal_id: Number(id) }
       });
-      
+
       for (const mapping of mappedRecons) {
         if (!todayRecon || mapping.reconciliation_id !== todayRecon.id) {
           await calculateAndSetReconciliationStatus(mapping.reconciliation_id, userId);

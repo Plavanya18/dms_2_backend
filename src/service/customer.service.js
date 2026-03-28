@@ -72,6 +72,9 @@ const getAllCustomers = async (
       orderBy: { created_at: "desc" },
       include: {
         deals: {
+          where: {
+            deleted_at: null
+          },
           include: {
             receivedItems: true,
             paidItems: true,
@@ -156,6 +159,9 @@ const getCustomerById = async (id) => {
       include: {
         createdBy: true,
         deals: {
+          where:{
+            deleted_at: null
+          },
           include: {
             receivedItems: { include: { currency: true } },
             paidItems: { include: { currency: true } },

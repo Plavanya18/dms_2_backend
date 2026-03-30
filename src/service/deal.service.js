@@ -206,8 +206,8 @@ const getAllDeals = async (
     if (dateFilter) {
       let dateCondition = {};
       if (dateFilter === "today") {
-        const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+        const endToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
         dateCondition = {
           OR: [
             { pre_date: { gte: startToday, lte: endToday } },
@@ -215,9 +215,7 @@ const getAllDeals = async (
           ]
         };
       } else if (dateFilter === "last7") {
-        const d = new Date();
-        d.setDate(d.getDate() - 7);
-        d.setHours(0, 0, 0, 0);
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7, 0, 0, 0, 0));
         dateCondition = {
           OR: [
             { pre_date: { gte: d } },
@@ -225,9 +223,7 @@ const getAllDeals = async (
           ]
         };
       } else if (dateFilter === "last30") {
-        const d = new Date();
-        d.setDate(d.getDate() - 30);
-        d.setHours(0, 0, 0, 0);
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 30, 0, 0, 0, 0));
         dateCondition = {
           OR: [
             { pre_date: { gte: d } },
@@ -235,9 +231,7 @@ const getAllDeals = async (
           ]
         };
       } else if (dateFilter === "last90") {
-        const d = new Date();
-        d.setDate(d.getDate() - 90);
-        d.setHours(0, 0, 0, 0);
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 90, 0, 0, 0, 0));
         dateCondition = {
           OR: [
             { pre_date: { gte: d } },
@@ -245,10 +239,10 @@ const getAllDeals = async (
           ]
         };
       } else if (dateFilter === "custom" && startDate && endDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
+        const s = new Date(startDate);
+        const start = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate(), 0, 0, 0, 0));
+        const e = new Date(endDate);
+        const end = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate(), 23, 59, 59, 999));
         dateCondition = {
           OR: [
             { pre_date: { gte: start, lte: end } },

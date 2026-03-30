@@ -16,7 +16,7 @@ const upsertOpenSetRate = async (data) => {
     try {
         const { currency_id, set_rate, date } = data;
         const dateString = formatDate(date);
-        const targetDate = new Date(dateString);
+        const targetDate = new Date(dateString + "T00:00:00Z");
 
         const record = await getdb.openSetRate.upsert({
             where: {
@@ -49,7 +49,7 @@ const upsertOpenSetRate = async (data) => {
 const getOpenSetRates = async (date) => {
     try {
         const dateString = formatDate(date);
-        const targetDate = new Date(dateString);
+        const targetDate = new Date(dateString + "T00:00:00Z");
 
         const rates = await getdb.openSetRate.findMany({
             where: { date: targetDate },
@@ -145,8 +145,8 @@ const getOpenSetRates = async (date) => {
 
 const getRateByDateAndCurrency = async (currency_id, date) => {
     try {
-        const targetDate = new Date(date);
-        targetDate.setHours(0, 0, 0, 0);
+        const dateString = formatDate(date);
+        const targetDate = new Date(dateString + "T00:00:00Z");
 
         return await getdb.openSetRate.findUnique({
             where: {
@@ -165,8 +165,8 @@ const getRateByDateAndCurrency = async (currency_id, date) => {
 const propagateAverageRateToNextDay = async (todayDateInput, userId) => {
     try {
         const today = new Date(todayDateInput);
-        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+        const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0, 0));
+        const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59, 999));
 
         const deals = await getdb.deal.findMany({
             where: {
@@ -230,7 +230,7 @@ const propagateAverageRateToNextDay = async (todayDateInput, userId) => {
 
         // 4. Upsert for Tomorrow
         const tomorrow = new Date(start);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
         const tzsCurrency = await getdb.currency.findUnique({ where: { code: "TZS" } });
         if (!tzsCurrency) {

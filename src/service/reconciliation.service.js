@@ -575,51 +575,42 @@ const getAllReconciliations = async ({
     if (dateFilter) {
       switch (dateFilter) {
         case "today":
-          start = new Date(now.setHours(0, 0, 0, 0));
-          end = new Date(now.setHours(23, 59, 59, 999));
+          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
 
         case "yesterday":
-          const yesterday = new Date();
-          yesterday.setDate(now.getDate() - 1);
-          start = new Date(yesterday.setHours(0, 0, 0, 0));
-          end = new Date(yesterday.setHours(23, 59, 59, 999));
+          const yesterdayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+          start = new Date(Date.UTC(yesterdayUTC.getUTCFullYear(), yesterdayUTC.getUTCMonth(), yesterdayUTC.getUTCDate(), 0, 0, 0, 0));
+          end = new Date(Date.UTC(yesterdayUTC.getUTCFullYear(), yesterdayUTC.getUTCMonth(), yesterdayUTC.getUTCDate(), 23, 59, 59, 999));
           break;
 
         case "last7":
-          start = new Date(now);
-          start.setDate(now.getDate() - 7);
-          start.setHours(0, 0, 0, 0);
-          end = new Date(now.setHours(23, 59, 59, 999));
+          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7, 0, 0, 0, 0));
+          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
 
         case "last30":
-          start = new Date(now);
-          start.setDate(now.getDate() - 30);
-          start.setHours(0, 0, 0, 0);
-          end = new Date(now.setHours(23, 59, 59, 999));
+          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 30, 0, 0, 0, 0));
+          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
 
         case "last90":
-          start = new Date(now);
-          start.setDate(now.getDate() - 90);
-          start.setHours(0, 0, 0, 0);
-          end = new Date(now.setHours(23, 59, 59, 999));
+          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 90, 0, 0, 0, 0));
+          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
 
         case "thisMonth":
-          start = new Date(now.getFullYear(), now.getMonth(), 1);
-          start.setHours(0, 0, 0, 0);
-          end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-          end.setHours(23, 59, 59, 999);
+          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
           break;
 
         case "custom":
           if (startDate && endDate) {
-            start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            const s = new Date(startDate);
+            const e = new Date(endDate);
+            start = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate(), 0, 0, 0, 0));
+            end = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate(), 23, 59, 59, 999));
           } else {
             throw new Error("For custom dateFilter, startDate and endDate are required");
           }
@@ -683,7 +674,7 @@ const getAllReconciliations = async ({
     const openSetRates = await getdb.openSetRate.findMany({
       where: {
         date: {
-          in: reconciliationDates.map(d => new Date(d))
+          in: reconciliationDates.map(d => new Date(d + "T00:00:00Z"))
         }
       },
       include: { currency: true }

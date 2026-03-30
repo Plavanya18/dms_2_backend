@@ -44,28 +44,25 @@ const getAllExpenses = async (params = {}) => {
 
         if (dateFilter) {
             if (dateFilter === "today") {
-                const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-                const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+                const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+                const endToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
                 where.date = { gte: startToday, lte: endToday };
             } else if (dateFilter === "last7") {
-                const d = new Date();
-                d.setDate(d.getDate() - 7);
-                d.setHours(0, 0, 0, 0);
-                where.date = { gte: d };
+                where.date = { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7, 0, 0, 0, 0)) };
             } else if (dateFilter === "last30") {
-                const d = new Date();
-                d.setDate(d.getDate() - 30);
-                d.setHours(0, 0, 0, 0);
-                where.date = { gte: d };
+                where.date = { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 30, 0, 0, 0, 0)) };
             } else if (dateFilter === "last90") {
-                const d = new Date();
-                d.setDate(d.getDate() - 90);
-                d.setHours(0, 0, 0, 0);
-                where.date = { gte: d };
+                where.date = { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 90, 0, 0, 0, 0)) };
             } else if (dateFilter === "custom" && (startDate || endDate)) {
                 where.date = {};
-                if (startDate) where.date.gte = new Date(startDate);
-                if (endDate) where.date.lte = new Date(endDate);
+                if (startDate) {
+                    const s = new Date(startDate);
+                    where.date.gte = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate(), 0, 0, 0, 0));
+                }
+                if (endDate) {
+                    const e = new Date(endDate);
+                    where.date.lte = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate(), 23, 59, 59, 999));
+                }
             }
         } else if (startDate || endDate) {
             where.date = {};

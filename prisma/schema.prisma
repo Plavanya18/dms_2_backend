@@ -156,6 +156,7 @@ model Deal {
   updated_at        DateTime
   deleted_at        DateTime?
   completed_at      DateTime?
+  pre_date          DateTime?            @db.Date
   actionBy          User?                @relation("DealActionBy", fields: [action_by], references: [id])
   buyCurrency       Currency             @relation("BuyCurrency", fields: [buy_currency_id], references: [id])
   createdBy         User                 @relation("DealCreatedBy", fields: [created_by], references: [id])

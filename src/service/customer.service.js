@@ -119,7 +119,7 @@ const getAllCustomers = async (
 
         const pendingValue = expectedTZS - settledTZS;
 
-        if (pendingValue <= 0) continue; 
+        if (pendingValue <= 0) continue;
         if (deal.deal_type === "sell") {
           debitTZS += pendingValue;
         } else if (deal.deal_type === "buy") {
@@ -159,7 +159,7 @@ const getCustomerById = async (id) => {
       include: {
         createdBy: true,
         deals: {
-          where:{
+          where: {
             deleted_at: null
           },
           include: {
@@ -183,7 +183,7 @@ const getCustomerById = async (id) => {
       const buyAmount = isBuy ? Number(deal.amount || 0) : Number(deal.amount_to_be_paid || 0);
       const sellAmount = isBuy ? Number(deal.amount_to_be_paid || 0) : Number(deal.amount || 0);
 
-      const date = new Date(deal.created_at);
+      const date = new Date(deal.pre_date || deal.created_at);
       const formattedDate = `${date.getUTCFullYear()}/${(date.getUTCMonth() + 1)
         .toString()
         .padStart(2, "0")}/${date.getUTCDate().toString().padStart(2, "0")}`;
@@ -207,6 +207,7 @@ const getCustomerById = async (id) => {
         action_at: deal.action_at,
         completed_at: deal.completed_at,
         created_at: formattedDate,
+        pre_date: deal.pre_date,
         updated_at: deal.updated_at,
         deleted_at: deal.deleted_at,
         receivedItems: deal.receivedItems || [],

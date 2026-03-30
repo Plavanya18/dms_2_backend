@@ -8,11 +8,16 @@ const os = require("os");
 
 const createDeal = async (data, userId) => {
   try {
-    const dealDate = data.created_at && !isNaN(Date.parse(data.created_at))
-      ? new Date(data.created_at)
-      : new Date();
-    const today = dealDate;
-    const datePart = `${String(today.getUTCDate()).padStart(2, "0")}${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
+    const pre_date = (data.pre_date && !isNaN(Date.parse(data.pre_date)))
+      ? new Date(data.pre_date)
+      : (data.created_at && !isNaN(Date.parse(data.created_at)))
+        ? new Date(data.created_at)
+        : new Date();
+
+    // Set created_at to current time for audit, unless explicitly provided as different from pre_date
+    const createdAt = new Date();
+
+    const datePart = `${String(pre_date.getUTCDate()).padStart(2, "0")}${String(pre_date.getUTCMonth() + 1).padStart(2, "0")}`;
 
     const customer = await getdb.customer.findUnique({
       where: { id: data.customer_id },
@@ -45,39 +50,10 @@ const createDeal = async (data, userId) => {
 
     logger.info(`Creating deal: ${deal_number}`);
 
-    // const existingPair = await getdb.currencyPairRate.findFirst({
-    //   where: {
-    //     base_currency_id: data.buy_currency_id,
-    //     quote_currency_id: data.sell_currency_id,
-    //   },
-    // });
-
-    // if (existingPair) {
-    //   await getdb.currencyPairRate.update({
-    //     where: { id: existingPair.id },
-    //     data: {
-    //       rate: data.exchange_rate,
-    //       effective_at: new Date(),
-    //       created_by: userId,
-    //     },
-    //   });
-    // } else {
-    //   await getdb.currencyPairRate.create({
-    //     data: {
-    //       base_currency_id: data.buy_currency_id,
-    //       quote_currency_id: data.sell_currency_id,
-    //       rate: data.exchange_rate,
-    //       effective_at: new Date(),
-    //       created_by: userId,
-    //     },
-    //   });
-    // }
-
     const newDeal = await getdb.deal.create({
       data: {
         deal_number,
         customer_id: data.customer_id,
-        phone_number: data.phone_number,
         deal_type: data.deal_type,
         buy_currency_id: data.buy_currency_id,
         sell_currency_id: data.sell_currency_id,
@@ -88,24 +64,27 @@ const createDeal = async (data, userId) => {
         remarks: data.remarks || null,
         credit_type: data.credit_type || null,
         status: data.status,
-        completed_at: data.status === "Completed" ? dealDate : null,
+        completed_at: data.status === "Completed" ? createdAt : null,
         created_by: userId,
-        created_at: dealDate,
-        updated_at: dealDate,
+        created_at: createdAt,
+        updated_at: createdAt,
+        pre_date: pre_date,
         receivedItems: {
           create: (data.receivedItems || []).map(item => ({
-            price: item.price,
-            quantity: item.quantity,
-            total: item.total,
-            currency_id: item.currency_id,
+            price: String(item.price),
+            quantity: String(item.quantity),
+            total: String(item.total),
+            currency_id: Number(item.currency_id),
+            created_at: pre_date, // Align items with pre_date for reconciliation mapping
           })),
         },
         paidItems: {
           create: (data.paidItems || []).map(item => ({
-            price: item.price,
-            quantity: item.quantity,
-            total: item.total,
-            currency_id: item.currency_id,
+            price: String(item.price),
+            quantity: String(item.quantity),
+            total: String(item.total),
+            currency_id: Number(item.currency_id),
+            created_at: pre_date, // Align items with pre_date for reconciliation mapping
           })),
         },
       },
@@ -117,14 +96,16 @@ const createDeal = async (data, userId) => {
 
     logger.info(`Deal created: ${newDeal.deal_number}`);
 
-    // Map to today's reconciliation if it exists
+    // Map to reconciliation of the pre_date if it exists
     try {
-      const startOfDay = new Date(dealDate);
+      const { syncReconciliationCascade } = require("./reconciliation.service");
+
+      const startOfDay = new Date(pre_date);
       startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(dealDate);
+      const endOfDay = new Date(pre_date);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Find the shared reconciliation for today (any user's recon)
+      // Find the reconciliation for that specific pre_date
       const reconciliation = await getdb.reconciliation.findFirst({
         where: {
           created_at: {
@@ -144,13 +125,11 @@ const createDeal = async (data, userId) => {
         });
         logger.info(`Automatically mapped deal ${newDeal.deal_number} to reconciliation ${reconciliation.id}`);
 
-        // Automatically update the status (Tallied/Excess/Short)
-        const { calculateAndSetReconciliationStatus } = require("./reconciliation.service");
-        await calculateAndSetReconciliationStatus(reconciliation.id, userId);
+        // Trigger cascading update from this date onwards
+        await syncReconciliationCascade(pre_date, userId);
       }
     } catch (mappingError) {
-      logger.error("Failed to automatically map deal to reconciliation:", mappingError);
-      // We don't throw here to avoid failing deal creation if mapping fails
+      logger.error("Failed to automatically map deal or sync cascade:", mappingError);
     }
 
     return newDeal;
@@ -166,7 +145,7 @@ const getAllDeals = async (
   search = "",
   status = "",
   currency = "",
-  orderByField = "created_at",
+  orderByField = "pre_date",
   orderDirection = "desc",
   dateFilter = "",
   startDate = "",
@@ -224,33 +203,33 @@ const getAllDeals = async (
       where.deal_type = dealType.toLowerCase();
     }
 
-    // Date filtering logic
     if (dateFilter) {
+      const dateField = "pre_date"; // Use pre_date for accounting filters
       if (dateFilter === "today") {
         const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        where.created_at = { gte: startToday, lte: endToday };
+        where[dateField] = { gte: startToday, lte: endToday };
       } else if (dateFilter === "last7") {
         const d = new Date();
         d.setDate(d.getDate() - 7);
         d.setHours(0, 0, 0, 0);
-        where.created_at = { gte: d };
+        where[dateField] = { gte: d };
       } else if (dateFilter === "last30") {
         const d = new Date();
         d.setDate(d.getDate() - 30);
         d.setHours(0, 0, 0, 0);
-        where.created_at = { gte: d };
+        where[dateField] = { gte: d };
       } else if (dateFilter === "last90") {
         const d = new Date();
         d.setDate(d.getDate() - 90);
         d.setHours(0, 0, 0, 0);
-        where.created_at = { gte: d };
+        where[dateField] = { gte: d };
       } else if (dateFilter === "custom" && startDate && endDate) {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        where.created_at = {
+        where[dateField] = {
           gte: start,
           lte: end,
         };
@@ -453,8 +432,8 @@ const getAllDeals = async (
 
     const todayDeals = allDealsForStats.filter(
       (d) =>
-        new Date(d.created_at) >= startToday &&
-        new Date(d.created_at) <= endToday
+        new Date(d.pre_date || d.created_at) >= startToday &&
+        new Date(d.pre_date || d.created_at) <= endToday
     );
 
     const startYesterday = new Date(startToday);
@@ -465,8 +444,8 @@ const getAllDeals = async (
 
     const yesterdayDeals = allDealsForStats.filter(
       (d) =>
-        new Date(d.created_at) >= startYesterday &&
-        new Date(d.created_at) <= endYesterday
+        new Date(d.pre_date || d.created_at) >= startYesterday &&
+        new Date(d.pre_date || d.created_at) <= endYesterday
     );
 
     const stats = {
@@ -533,7 +512,7 @@ const generateDealsExcel = async (deals) => {
     { header: "Exchange Rate", key: "exchange_rate", width: 15 },
     { header: "Sell Amount", key: "sell_amount", width: 15 },
     { header: "Status", key: "status", width: 15 },
-    { header: "Created At", key: "created_at", width: 20 },
+    { header: "Date", key: "created_at", width: 20 },
     { header: "Created By", key: "created_by", width: 20 },
   ];
 
@@ -560,7 +539,7 @@ const generateDealsExcel = async (deals) => {
       exchange_rate: Number(d.exchange_rate || 0),
       sell_amount,
       status: d.status,
-      created_at: formatDateDDMMYYYY(d.created_at),
+      created_at: formatDateDDMMYYYY(d.pre_date || d.created_at),
       created_by: capitalizeWords(d.createdBy?.full_name || ""),
     });
   });
@@ -626,7 +605,7 @@ const generateDealsPDF = async (deals) => {
     doc.text(`Exchange Rate: ${Number(d.exchange_rate || 0)}`);
     doc.text(`Sell Amount: ${sell_amount}`);
     doc.text(`Status: ${d.status}`);
-    doc.text(`Created At: ${formatDateDDMMYYYY(d.created_at)}`);
+    doc.text(`Date: ${formatDateDDMMYYYY(d.pre_date || d.created_at)}`);
     doc.text(`Created By: ${capitalizeWords(d.createdBy?.full_name || "")}`);
     doc.moveDown(1);
     doc.text("----------------------------------------------");
@@ -678,6 +657,16 @@ const updateDealStatus = async (id, status, reason = null, userId) => {
 
     logger.info(`Deal status updated: ${updated.id} ${updated.deal_number}`);
 
+    // Trigger cascading sync if status changed (valuation/movement might be affected)
+    try {
+      const { syncReconciliationCascade } = require("./reconciliation.service");
+      if (updated.pre_date) {
+        await syncReconciliationCascade(updated.pre_date, userId);
+      }
+    } catch (syncError) {
+      logger.error("Failed to sync reconciliation cascade on status update:", syncError.message);
+    }
+
     return updated;
 
   } catch (error) {
@@ -708,6 +697,7 @@ const updateDeal = async (id, data, userId) => {
       action_at: new Date(),
       completed_at: data.status === "Completed" ? new Date() : undefined,
       updated_at: new Date(),
+      pre_date: data.pre_date ? new Date(data.pre_date) : undefined,
     };
 
     if (Array.isArray(data.receivedItems)) {
@@ -775,42 +765,55 @@ const updateDeal = async (id, data, userId) => {
 
     logger.info(`Deal updated: ${updatedDeal.deal_number}`);
 
-    // Automatically Sync Reconciliations
+    // Automatically Sync Reconciliations and Cascade
     try {
-      const { startReconciliation, calculateAndSetReconciliationStatus } = require("./reconciliation.service");
+      const { syncReconciliationCascade } = require("./reconciliation.service");
 
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date();
-      todayEnd.setHours(23, 59, 59, 999);
+      if (updatedDeal.pre_date) {
+        const oldPreDate = existingDeal.pre_date ? new Date(existingDeal.pre_date) : null;
+        const newPreDate = new Date(updatedDeal.pre_date);
 
-      // Find the shared reconciliation for today (any user's recon)
-      const todayRecon = await getdb.reconciliation.findFirst({
-        where: {
-          created_at: { gte: todayStart, lte: todayEnd }
-        },
-        orderBy: { created_at: "asc" },
-      });
+        const dateChanged = !oldPreDate || oldPreDate.toISOString().split('T')[0] !== newPreDate.toISOString().split('T')[0];
 
-      if (todayRecon) {
-        await startReconciliation(todayRecon.id, userId);
-      }
+        if (dateChanged) {
+          // 1. Remove old mapping
+          await getdb.reconciliationDeal.deleteMany({ where: { deal_id: updatedDeal.id } });
 
-      const mappedRecons = await getdb.reconciliationDeal.findMany({
-        where: { deal_id: Number(id) }
-      });
+          // 2. Map to the new reconciliation if it exists for the new pre_date
+          const startOfDay = new Date(newPreDate);
+          startOfDay.setHours(0, 0, 0, 0);
+          const endOfDay = new Date(newPreDate);
+          endOfDay.setHours(23, 59, 59, 999);
 
-      for (const mapping of mappedRecons) {
-        if (!todayRecon || mapping.reconciliation_id !== todayRecon.id) {
-          await calculateAndSetReconciliationStatus(mapping.reconciliation_id, userId);
+          const newRecon = await getdb.reconciliation.findFirst({
+            where: { created_at: { gte: startOfDay, lte: endOfDay } },
+            orderBy: { created_at: "asc" }
+          });
+
+          if (newRecon) {
+            await getdb.reconciliationDeal.create({
+              data: {
+                reconciliation_id: newRecon.id,
+                deal_id: updatedDeal.id
+              }
+            });
+            logger.info(`Re-mapped deal ${updatedDeal.deal_number} to reconciliation ${newRecon.id}`);
+          }
         }
+
+        // Trigger cascading sync from the EARLIEST of old or new pre_date to ensure integrity
+        let syncStartDate = newPreDate;
+        if (oldPreDate && oldPreDate < syncStartDate) {
+          syncStartDate = oldPreDate;
+        }
+
+        await syncReconciliationCascade(syncStartDate, userId);
       }
     } catch (syncError) {
-      logger.error("Failed to sync reconciliations after deal update:", syncError.message);
+      logger.error("Failed to sync reconciliation cascade on update:", syncError.message);
     }
 
     return updatedDeal;
-
   } catch (error) {
     logger.error("Failed to update deal:", error.message);
     throw error;
@@ -867,14 +870,14 @@ const deleteDeal = async (id, userId) => {
       data: { deleted_at: new Date() },
     });
 
-    // Recalculate status for all affected reconciliations
+    // Recalculate status for all affected reconciliations and cascade
     try {
-      const { calculateAndSetReconciliationStatus } = require("./reconciliation.service");
-      for (const mapping of mappedRecons) {
-        await calculateAndSetReconciliationStatus(mapping.reconciliation_id, userId);
+      const { syncReconciliationCascade } = require("./reconciliation.service");
+      if (existingDeal.pre_date) {
+        await syncReconciliationCascade(existingDeal.pre_date, userId);
       }
     } catch (syncError) {
-      logger.error("Failed to update reconciliation after deal delete:", syncError.message);
+      logger.error("Failed to update reconciliation cascade after deal delete:", syncError.message);
     }
 
     logger.info(`Deal soft deleted and removed from reconciliation: ${updated.id} ${updated.deal_number}`);

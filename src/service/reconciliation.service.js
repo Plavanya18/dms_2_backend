@@ -107,7 +107,7 @@ const mapDailyDeals = async (reconciliationId, userId) => {
 
     const deals = await getdb.deal.findMany({
       where: {
-        created_at: { gte: startOfDay, lte: endOfDay },
+        pre_date: { gte: startOfDay, lte: endOfDay },
         reconciliations: { none: {} },
         deleted_at: null,
       },
@@ -197,6 +197,10 @@ const createReconciliation = async (data, userId) => {
     });
 
     logger.info("Reconciliation created successfully.");
+
+    // Automatically map any existing deals for this date
+    await mapDailyDeals(newReconciliation.id, userId);
+
     return newReconciliation;
 
   } catch (error) {
@@ -318,7 +322,7 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
 
     updatedReconciliation.deals.forEach(rd => {
       const deal = rd.deal;
-      const dealDate = deal.created_at ? new Date(deal.created_at).toISOString().split('T')[0] : "";
+      const dealDate = deal.pre_date ? new Date(deal.pre_date).toISOString().split('T')[0] : "";
       const isSameDayDeal = dealDate === reconDate;
 
       const matchingReceivedItems = (deal.receivedItems || []).filter(item => {
@@ -445,6 +449,7 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
       });
 
       if (updatedClosingEntriesArr.length > 0) {
+        logger.info(`Updating closing entries for recon ${id}: ${JSON.stringify(updatedClosingEntriesArr)}`);
         await getdb.reconciliationClosing.createMany({ data: updatedClosingEntriesArr });
         finalClosingEntriesFound = true;
       }
@@ -697,7 +702,7 @@ const getAllReconciliations = async ({
         if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
         else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
-      
+
       const totalClosingValue = closingUSD * closingRate + closingTZS;
 
       const totalValueOut = totalTzsPaid + (totalForeignSold * closingRate);
@@ -769,7 +774,7 @@ const generateExcel = async (recs) => {
   sheet.columns = [
     { header: "ID", key: "id", width: 10 },
     { header: "Status", key: "status", width: 15 },
-    { header: "Created At", key: "created_at", width: 20 },
+    { header: "Date", key: "created_at", width: 20 },
     { header: "Created By", key: "created_by", width: 20 },
     { header: "Opening Entries", key: "opening_entries", width: 50 },
     { header: "Opening Book Balance (TZS)", key: "opening_book_balance", width: 30 },
@@ -877,7 +882,7 @@ const generatePDF = async (recs) => {
     doc.fontSize(12)
       .text(`ID: ${r.id}`)
       .text(`Status: ${r.status}`)
-      .text(`Created At: ${createdAt}`)
+      .text(`Date: ${createdAt}`)
       .text(`Created By: ${r.createdBy?.full_name || "—"}`);
 
     doc.moveDown(0.3);
@@ -935,7 +940,7 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     if (!rec) throw new Error("Reconciliation not found");
 
     // Reconciliation is now shared across all users
-    
+
     // AGGREGATION VARIABLES
     let totalTzsPaid = 0;
     let totalTzsReceived = 0;
@@ -952,7 +957,7 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     // PROCESS DEALS
     for (const dealRec of rec.deals) {
       const deal = dealRec.deal;
-      const dealDate = deal.created_at ? new Date(deal.created_at).toISOString().split('T')[0] : "";
+      const dealDate = deal.pre_date ? new Date(deal.pre_date).toISOString().split('T')[0] : "";
       const isSameDayDeal = dealDate === reconDate;
 
       const matchingReceivedItems = (deal.receivedItems || []).filter(item => {
@@ -1203,6 +1208,74 @@ const updateReconciliation = async (id, data, userId) => {
   }
 };
 
+const syncReconciliationCascade = async (startDate, userId) => {
+  try {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+
+    // 1. Get all reconciliations from the startDate onwards
+    const reconciliations = await getdb.reconciliation.findMany({
+      where: {
+        created_at: { gte: start },
+      },
+      orderBy: { created_at: "asc" },
+      include: {
+        openingEntries: true,
+        closingEntries: { include: { currency: true } },
+      },
+    });
+
+    if (reconciliations.length === 0) {
+      logger.info(`No reconciliations found from ${startDate} onwards to cascade.`);
+      return;
+    }
+
+    logger.info(`Starting cascading sync for ${reconciliations.length} reconciliations from ${startDate}`);
+
+    let previousClosingEntries = null;
+
+    for (let i = 0; i < reconciliations.length; i++) {
+      const current = reconciliations[i];
+
+      // Step A: Update Opening Entries if we have a previous closed reconciliation
+      if (previousClosingEntries) {
+        logger.info(`Updating opening entries for recon ${current.id} from previous closing.`);
+
+        // Delete existing opening entries
+        await getdb.reconciliationOpening.deleteMany({
+          where: { reconciliation_id: current.id }
+        });
+
+        // Create new opening entries from previous closing
+        await getdb.reconciliationOpening.createMany({
+          data: previousClosingEntries.map(e => ({
+            reconciliation_id: current.id,
+            currency_id: e.currency_id,
+            amount: e.amount,
+            denomination: e.denomination || e.amount || 0,
+            quantity: e.quantity || 1,
+            exchange_rate: e.exchange_rate || 1.0,
+          }))
+        });
+      }
+
+      // Step B: Map any new deals for this day that might have been missed (e.g. back-dated)
+      await mapDailyDeals(current.id, userId);
+
+      // Step C: Recalculate this reconciliation's closing balance and status
+      const updated = await calculateAndSetReconciliationStatus(current.id, userId);
+
+      // Step D: Store the updated closing entries for the next in chain
+      previousClosingEntries = updated.closingEntries;
+    }
+
+    logger.info("Cascading sync completed successfully.");
+  } catch (error) {
+    logger.error("Failed to sync reconciliation cascade:", error);
+    throw error;
+  }
+};
+
 module.exports = {
   createReconciliation,
   getAllReconciliations,
@@ -1211,4 +1284,5 @@ module.exports = {
   startReconciliation,
   getCurrentDayReconciliation,
   calculateAndSetReconciliationStatus,
+  syncReconciliationCascade,
 };

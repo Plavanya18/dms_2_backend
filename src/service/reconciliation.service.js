@@ -430,7 +430,7 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
     let hasDeals = (updatedReconciliation.deals || []).length > 0;
     let finalClosingEntriesFound = (updatedReconciliation.closingEntries || []).length > 0;
 
-    if (hasDeals) {
+    if (hasDeals || finalClosingEntriesFound) {
       await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
 
       const updatedClosingEntriesArr = [];

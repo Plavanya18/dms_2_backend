@@ -1,10 +1,21 @@
 const { getdb } = require("../config/db");
 const logger = require("../config/logger");
 
+// ✅ Standardized date formatter to prevent timezone shifts (YYYY-MM-DD)
+const formatDate = (date) => {
+    if (!date) return "";
+    const d = new Date(date);
+    // Using getUTC* to ensure consistency across servers, as pre_date/created_at are stored as UTC
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const upsertOpenSetRate = async (data) => {
     try {
         const { currency_id, set_rate, date } = data;
-        const dateString = new Date(date).toISOString().split('T')[0];
+        const dateString = formatDate(date);
         const targetDate = new Date(dateString);
 
         const record = await getdb.openSetRate.upsert({
@@ -27,7 +38,7 @@ const upsertOpenSetRate = async (data) => {
             },
         });
 
-        logger.info(`OpenSetRate upserted for ${record.currency.code} on ${targetDate.toISOString().split('T')[0]}`);
+        logger.info(`OpenSetRate upserted for ${record.currency.code} on ${formatDate(targetDate)}`);
         return record;
     } catch (error) {
         logger.error("Failed to upsert OpenSetRate:", error);
@@ -37,7 +48,7 @@ const upsertOpenSetRate = async (data) => {
 
 const getOpenSetRates = async (date) => {
     try {
-        const dateString = new Date(date).toISOString().split('T')[0];
+        const dateString = formatDate(date);
         const targetDate = new Date(dateString);
 
         const rates = await getdb.openSetRate.findMany({
@@ -64,43 +75,61 @@ const getOpenSetRates = async (date) => {
 
         let previousRate = previousRateRecord ? Number(previousRateRecord.set_rate) : 0;
 
-        // 3rd: Average computed from yesterday's USD deals
+        // 3rd: Average computed from the MOST RECENT day with deals (if previousRate still 0)
         if (!previousRate) {
-            const yesterday = new Date(targetDate);
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0, 0);
-            const yesterdayEnd = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
-
-            const yesterdayDeals = await getdb.deal.findMany({
+            // Find the most recent deal date before targetDate
+            const lastDeal = await getdb.deal.findFirst({
                 where: {
                     OR: [
-                        { pre_date: { gte: yesterdayStart, lte: yesterdayEnd } },
-                        { pre_date: null, created_at: { gte: yesterdayStart, lte: yesterdayEnd } }
+                        { pre_date: { lt: targetDate } },
+                        { pre_date: null, created_at: { lt: targetDate } }
                     ],
                     deleted_at: null,
+                    AND: [
+                        { OR: [{ buyCurrency: { code: "USD" } }, { sellCurrency: { code: "USD" } }] }
+                    ]
                 },
-                select: {
-                    amount: true,
-                    amount_to_be_paid: true,
-                    exchange_rate: true,
-                    created_at: true,
-                    buyCurrency: { select: { code: true } },
-                    sellCurrency: { select: { code: true } },
-                }
+                orderBy: { pre_date: "desc" }, // fallbacks handled by DB ordering usually
+                select: { pre_date: true, created_at: true }
             });
 
-            if (yesterdayDeals.length > 0) {
-                let sumRates = 0, count = 0;
-                yesterdayDeals.forEach(deal => {
-                    const buyCode = deal.buyCurrency?.code;
-                    const sellCode = deal.sellCurrency?.code;
-                    if (buyCode !== "USD" && sellCode !== "USD") return;
-                    const amount = Number(deal.amount || 0);
-                    const amtPaid = Number(deal.amount_to_be_paid || 0);
-                    const effective = amount > 0 ? amtPaid / amount : Number(deal.exchange_rate || 0);
-                    if (effective > 0) { sumRates += effective; count++; }
+            if (lastDeal) {
+                const effectiveLastDate = lastDeal.pre_date || lastDeal.created_at;
+                const lastDateStart = new Date(effectiveLastDate);
+                lastDateStart.setHours(0, 0, 0, 0);
+                const lastDateEnd = new Date(effectiveLastDate);
+                lastDateEnd.setHours(23, 59, 59, 999);
+
+                const recentDeals = await getdb.deal.findMany({
+                    where: {
+                        OR: [
+                            { pre_date: { gte: lastDateStart, lte: lastDateEnd } },
+                            { pre_date: null, created_at: { gte: lastDateStart, lte: lastDateEnd } }
+                        ],
+                        deleted_at: null,
+                        AND: [
+                            { OR: [{ buyCurrency: { code: "USD" } }, { sellCurrency: { code: "USD" } }] }
+                        ]
+                    },
+                    select: {
+                        amount: true,
+                        amount_to_be_paid: true,
+                        exchange_rate: true,
+                        buyCurrency: { select: { code: true } },
+                        sellCurrency: { select: { code: true } },
+                    }
                 });
-                if (count > 0) previousRate = Math.round(sumRates / count);
+
+                if (recentDeals.length > 0) {
+                    let sumRates = 0, count = 0;
+                    recentDeals.forEach(deal => {
+                        const amount = Number(deal.amount || 0);
+                        const amtPaid = Number(deal.amount_to_be_paid || 0);
+                        const effective = amount > 0 ? amtPaid / amount : Number(deal.exchange_rate || 0);
+                        if (effective > 0) { sumRates += effective; count++; }
+                    });
+                    if (count > 0) previousRate = Math.round(sumRates / count);
+                }
             }
         }
 
@@ -219,7 +248,7 @@ const propagateAverageRateToNextDay = async (todayDateInput, userId) => {
             },
         });
 
-        logger.info(`Propagated average rate ${averageRate} from ${start.toISOString().split('T')[0]} to ${tomorrow.toISOString().split('T')[0]}`);
+        logger.info(`Propagated average rate ${averageRate} from ${formatDate(start)} to ${formatDate(tomorrow)}`);
         return record;
     } catch (error) {
         logger.error("Failed to propagate average rate:", error);

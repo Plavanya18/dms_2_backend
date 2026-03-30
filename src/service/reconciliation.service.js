@@ -6,6 +6,17 @@ const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const os = require("os");
 
+// ✅ Standardized date formatter to prevent timezone shifts (YYYY-MM-DD)
+const formatDate = (date) => {
+  if (!date) return "";
+  const d = new Date(date);
+  // Using getUTC* to ensure consistency across servers, as pre_date/created_at are stored as UTC
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const getCurrentDayReconciliation = async (userId) => {
   try {
     const now = new Date();
@@ -321,20 +332,20 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
       currencyTotals[cid].actual += Number(entry.amount || 0);
     });
 
-    const reconDate = updatedReconciliation.created_at ? new Date(updatedReconciliation.created_at).toISOString().split('T')[0] : "";
+    const reconDate = formatDate(updatedReconciliation.created_at);
 
     updatedReconciliation.deals.forEach(rd => {
       const deal = rd.deal;
-      const dealDate = deal.pre_date ? new Date(deal.pre_date).toISOString().split('T')[0] : "";
+      const dealDate = formatDate(deal.pre_date || deal.created_at);
       const isSameDayDeal = dealDate === reconDate;
 
       const matchingReceivedItems = (deal.receivedItems || []).filter(item => {
         if (!item.created_at) return true;
-        return new Date(item.created_at).toISOString().split('T')[0] === reconDate;
+        return formatDate(item.created_at) === reconDate;
       });
       const matchingPaidItems = (deal.paidItems || []).filter(item => {
         if (!item.created_at) return true;
-        return new Date(item.created_at).toISOString().split('T')[0] === reconDate;
+        return formatDate(item.created_at) === reconDate;
       });
 
       const hasMatchingItems = matchingReceivedItems.length > 0 || matchingPaidItems.length > 0;
@@ -505,12 +516,6 @@ const getAllReconciliations = async ({
   try {
     const skip = (page - 1) * limit;
     const where = {};
-
-    // ✅ Helper to normalize date (FIX)
-    const formatDate = (date) => {
-      const d = new Date(date);
-      return d.toISOString().split("T")[0]; // YYYY-MM-DD
-    };
 
     const now = new Date();
     let start, end;

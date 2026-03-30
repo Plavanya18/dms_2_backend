@@ -133,36 +133,37 @@ const verifyOtp = async (email, otp, ip_id = null) => {
     if (!user.is_active) throw new Error("User is deactivated");
 
     // Terminate any existing active sessions for this user
-    const terminatedSessions = await getdb.userSession.updateMany({
-      where: {
-        user_id: user.id,
-        session_status: "active",
-      },
-      data: {
-        session_status: "terminated",
-        logout_time: timestamp,
-        updated_at: timestamp,
-      },
-    });
+    // Now handled in loginUser stage for existing login concept
+    // const terminatedSessions = await getdb.userSession.updateMany({
+    //   where: {
+    //     user_id: user.id,
+    //     session_status: "active",
+    //   },
+    //   data: {
+    //     session_status: "terminated",
+    //     logout_time: timestamp,
+    //     updated_at: timestamp,
+    //   },
+    // });
 
-    if (terminatedSessions.count > 0) {
-      await getdb.user.update({
-        where: { id: user.id },
-        data: { force_logout: true, updated_at: timestamp },
-      });
+    // if (terminatedSessions.count > 0) {
+    //   await getdb.user.update({
+    //     where: { id: user.id },
+    //     data: { force_logout: true, updated_at: timestamp },
+    //   });
 
-      logger.warn(
-        `User ${email} had ${terminatedSessions.count} active session(s) — forced logout triggered for them.`
-      );
-    }
+    //   logger.warn(
+    //     `User ${email} had ${terminatedSessions.count} active session(s) — forced logout triggered for them.`
+    //   );
+    // }
 
-    if (user.force_logout) {
-      await getdb.user.update({
-        where: { id: user.id },
-        data: { force_logout: false, updated_at: timestamp },
-      });
-      logger.info(`Force logout cleared for user: ${email}`);
-    }
+    // if (user.force_logout) {
+    //   await getdb.user.update({
+    //     where: { id: user.id },
+    //     data: { force_logout: false, updated_at: timestamp },
+    //   });
+    //   logger.info(`Force logout cleared for user: ${email}`);
+    // }
 
     const token = jwt.sign(
       {

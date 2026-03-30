@@ -20,15 +20,14 @@ const formatDate = (date) => {
 const getCurrentDayReconciliation = async (userId) => {
   try {
     const now = new Date();
-    const startOfDay = new Date(now);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(now);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Normalize to Midnight UTC for stable comparison
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const endOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
 
     // Check if today's shared reconciliation already exists (any user's recon for today)
     const existing = await getdb.reconciliation.findFirst({
       where: {
-        created_at: { gte: startOfDay, lte: endOfDay },
+        created_at: { gte: startOfToday, lte: endOfToday },
       },
       include: {
         openingEntries: { include: { currency: true } },
@@ -41,9 +40,9 @@ const getCurrentDayReconciliation = async (userId) => {
     if (existing) return existing;
 
     // No today's reconciliation — look for the most recent previous shared one with closing entries
-    const previous = await getdb.reconciliation.findFirst({
+    let previous = await getdb.reconciliation.findFirst({
       where: {
-        created_at: { lt: startOfDay },
+        created_at: { lt: startOfToday },
         closingEntries: { some: {} },
       },
       orderBy: { created_at: "desc" },
@@ -57,8 +56,61 @@ const getCurrentDayReconciliation = async (userId) => {
       return null;
     }
 
-    // Auto-create today's reconciliation using yesterday's closing as opening
-    logger.info(`Auto-creating today's reconciliation for user ${userId} from previous closing (recon ID ${previous.id})`);
+    // ✅ Detect Gaps and Fill them (Timezone Safe)
+    const lastReconDate = new Date(previous.created_at);
+    let gapDate = new Date(Date.UTC(lastReconDate.getUTCFullYear(), lastReconDate.getUTCMonth(), lastReconDate.getUTCDate()));
+    gapDate.setUTCDate(gapDate.getUTCDate() + 1);
+
+    while (gapDate < startOfToday) {
+      logger.info(`Filling reconciliation gap for date: ${formatDate(gapDate)} using closing from ${formatDate(previous.created_at)}`);
+
+      // Auto-create a "Tallied" reconciliation for the skipped day
+      const gapRecon = await getdb.reconciliation.create({
+        data: {
+          created_by: userId,
+          status: "Tallied",
+          created_at: new Date(gapDate), // Midnight UTC of the gap day
+          updated_at: new Date(),
+          openingEntries: {
+            create: previous.closingEntries.map((e) => ({
+              denomination: e.denomination || e.amount || 0,
+              quantity: e.quantity !== undefined && e.quantity !== null ? e.quantity : 1,
+              amount: e.amount,
+              exchange_rate: e.exchange_rate || 1.0,
+              currency_id: e.currency_id,
+            })),
+          },
+          closingEntries: {
+            create: previous.closingEntries.map((e) => ({
+              denomination: e.denomination || e.amount || 0,
+              quantity: e.quantity !== undefined && e.quantity !== null ? e.quantity : 1,
+              amount: e.amount,
+              exchange_rate: e.exchange_rate || 1.0,
+              currency_id: e.currency_id,
+            })),
+          }
+        },
+        include: {
+          closingEntries: { include: { currency: true } },
+        }
+      });
+
+      // Sync any deals that might fall into this gap (back-dated deals)
+      await mapDailyDeals(gapRecon.id, userId);
+      // Recalculate status (marks Tallied, propagates rates to next day)
+      await calculateAndSetReconciliationStatus(gapRecon.id, userId);
+
+      // Re-fetch to get accurate state for the next iteration step
+      previous = await getdb.reconciliation.findUnique({
+        where: { id: gapRecon.id },
+        include: { closingEntries: { include: { currency: true } } }
+      });
+
+      gapDate.setUTCDate(gapDate.getUTCDate() + 1);
+    }
+
+    // Finally, Auto-create today's reconciliation using the last (gap or previous) closing as opening
+    logger.info(`Auto-creating today's reconciliation for user ${userId} from most recent closing`);
 
     const newRecon = await getdb.reconciliation.create({
       data: {

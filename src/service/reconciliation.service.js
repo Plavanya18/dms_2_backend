@@ -107,7 +107,10 @@ const mapDailyDeals = async (reconciliationId, userId) => {
 
     const deals = await getdb.deal.findMany({
       where: {
-        pre_date: { gte: startOfDay, lte: endOfDay },
+        OR: [
+          { pre_date: { gte: startOfDay, lte: endOfDay } },
+          { pre_date: null, created_at: { gte: startOfDay, lte: endOfDay } }
+        ],
         reconciliations: { none: {} },
         deleted_at: null,
       },
@@ -464,6 +467,13 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
     });
 
     logger.info(`Reconciliation status recalculated for ID ${id}. Final status: ${finalStatus}. Deals present: ${hasDeals}.`);
+
+    try {
+      const openSetRateService = require("./openSetRate.service");
+      await openSetRateService.propagateAverageRateToNextDay(updatedReconciliation.created_at, userId);
+    } catch (err) {
+      logger.error("Failed to propagate rate on reconciliation update:", err);
+    }
 
     return await getdb.reconciliation.findUnique({
       where: { id: updatedReconciliation.id },

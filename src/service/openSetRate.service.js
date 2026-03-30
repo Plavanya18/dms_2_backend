@@ -73,7 +73,11 @@ const getOpenSetRates = async (date) => {
 
             const yesterdayDeals = await getdb.deal.findMany({
                 where: {
-                    created_at: { gte: yesterdayStart, lte: yesterdayEnd },
+                    OR: [
+                        { pre_date: { gte: yesterdayStart, lte: yesterdayEnd } },
+                        { pre_date: null, created_at: { gte: yesterdayStart, lte: yesterdayEnd } }
+                    ],
+                    deleted_at: null,
                 },
                 select: {
                     amount: true,
@@ -126,8 +130,106 @@ const getRateByDateAndCurrency = async (currency_id, date) => {
     }
 };
 
+const propagateAverageRateToNextDay = async (todayDateInput, userId) => {
+    try {
+        const today = new Date(todayDateInput);
+        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+        const deals = await getdb.deal.findMany({
+            where: {
+                OR: [
+                    { pre_date: { gte: start, lte: end } },
+                    { pre_date: null, created_at: { gte: start, lte: end } }
+                ],
+                deleted_at: null,
+                AND: [
+                    {
+                        OR: [
+                            { buyCurrency: { code: "USD" } },
+                            { sellCurrency: { code: "USD" } }
+                        ]
+                    }
+                ]
+            },
+            select: {
+                amount: true,
+                amount_to_be_paid: true,
+                exchange_rate: true,
+                deal_type: true,
+                buyCurrency: { select: { code: true } },
+                sellCurrency: { select: { code: true } }
+            }
+        });
+
+        let averageRate = 0;
+        if (deals.length > 0) {
+            let sumRates = 0, count = 0;
+            deals.forEach(deal => {
+                const rate = Number(deal.exchange_rate || 0);
+                if (rate > 0) {
+                    sumRates += rate;
+                    count++;
+                }
+            });
+            if (count > 0) averageRate = Math.round(sumRates / count);
+        }
+
+        // 2. If no deals today, fallback to today's manual opensetrate
+        if (averageRate === 0) {
+            const todayRate = await getdb.openSetRate.findFirst({
+                where: { date: start, currency: { code: "TZS" } }
+            });
+            if (todayRate) averageRate = Number(todayRate.set_rate);
+        }
+
+        // 3. Fallback to any previous rate if still 0
+        if (averageRate === 0) {
+            const lastRate = await getdb.openSetRate.findFirst({
+                where: { currency: { code: "TZS" } },
+                orderBy: { date: "desc" }
+            });
+            if (lastRate) averageRate = Number(lastRate.set_rate);
+        }
+
+        if (averageRate === 0) return null; // No baseline available
+
+        // 4. Upsert for Tomorrow
+        const tomorrow = new Date(start);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const tzsCurrency = await getdb.currency.findUnique({ where: { code: "TZS" } });
+        if (!tzsCurrency) {
+            logger.warn("TZS currency not found for rate propagation");
+            return null;
+        }
+
+        const record = await getdb.openSetRate.upsert({
+            where: {
+                currency_id_date: {
+                    currency_id: tzsCurrency.id,
+                    date: tomorrow,
+                },
+            },
+            update: { set_rate: averageRate },
+            create: {
+                currency_id: tzsCurrency.id,
+                set_rate: averageRate,
+                date: tomorrow,
+            },
+        });
+
+        logger.info(`Propagated average rate ${averageRate} from ${start.toISOString().split('T')[0]} to ${tomorrow.toISOString().split('T')[0]}`);
+        return record;
+    } catch (error) {
+        logger.error("Failed to propagate average rate:", error);
+        throw error;
+    }
+};
+
 module.exports = {
     upsertOpenSetRate,
     getOpenSetRates,
     getRateByDateAndCurrency,
+    propagateAverageRateToNextDay,
 };

@@ -16,9 +16,9 @@ const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 const createUser = async (data) => {
   try {
-    
+
     const timestamp = new Date();
-    
+
     if (!data.email) {
       throw new Error("Email is required.");
     }
@@ -41,7 +41,7 @@ const createUser = async (data) => {
         full_name: data.full_name,
         email: data.email,
         password: hashedPassword,
-        role: data.role, 
+        role: data.role,
         phone_number: data.phone_number,
         is_active: true,
         must_change_password: true,
@@ -57,7 +57,7 @@ const createUser = async (data) => {
     await getdb.userDetail.create({
       data: {
         user_id: user.id,
-        password_expiry_date:passwordExpiry,
+        password_expiry_date: passwordExpiry,
         failed_login_attempts: 0,
         created_at: timestamp,
         updated_at: timestamp,
@@ -101,15 +101,15 @@ const listUsers = async (page = 1, limit = 10, search = "", orderByField = "crea
   try {
     const skip = (page - 1) * limit;
 
-      const where = {
+    const where = {
       deleted_at: null,
       ...(search
         ? {
-            OR: [
-              { full_name: { contains: search } },
-              { email: { contains: search } },
-            ],
-          }
+          OR: [
+            { full_name: { contains: search } },
+            { email: { contains: search } },
+          ],
+        }
         : {}),
     };
 
@@ -227,8 +227,8 @@ const toggleUserActive = async (id, is_active, performedById = null, reason = nu
 
 const getLoggedInUser = async (user_id) => {
   try {
-    const user = await getdb.user.findUnique({ 
-      where: { id: parseInt(user_id) } 
+    const user = await getdb.user.findUnique({
+      where: { id: parseInt(user_id) }
     });
     return user;
   } catch (error) {
@@ -238,7 +238,7 @@ const getLoggedInUser = async (user_id) => {
 };
 
 const logoutUser = async (token) => {
- const session = await getdb.userSession.findFirst({
+  const session = await getdb.userSession.findFirst({
     where: { token },
   });
 
@@ -253,7 +253,8 @@ const logoutUser = async (token) => {
 
   await getdb.userSession.update({
     where: { id: session.id },
-    data: { logout_time: new Date() ,
+    data: {
+      logout_time: new Date(),
       updated_at: new Date(),
       session_status: "inactive",
     },
@@ -272,6 +273,14 @@ const logoutUser = async (token) => {
   // logger.info(
   //   `User logged out successfully: user_id=${session.user_id}, deals_deleted=${deletedDeals.count}`
   // );
+
+  try {
+    const openSetRateService = require("./openSetRate.service");
+    await openSetRateService.propagateAverageRateToNextDay(new Date(), session.user_id);
+  } catch (err) {
+    logger.error("Failed to propagate rate on logout:", err);
+    // Continue logout even if propagation fails
+  }
 
   return {
     message: "Logout successful",

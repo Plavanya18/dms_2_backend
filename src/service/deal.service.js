@@ -204,35 +204,62 @@ const getAllDeals = async (
     }
 
     if (dateFilter) {
-      const dateField = "pre_date"; // Use pre_date for accounting filters
+      let dateCondition = {};
       if (dateFilter === "today") {
         const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        where[dateField] = { gte: startToday, lte: endToday };
+        dateCondition = {
+          OR: [
+            { pre_date: { gte: startToday, lte: endToday } },
+            { pre_date: null, created_at: { gte: startToday, lte: endToday } }
+          ]
+        };
       } else if (dateFilter === "last7") {
         const d = new Date();
         d.setDate(d.getDate() - 7);
         d.setHours(0, 0, 0, 0);
-        where[dateField] = { gte: d };
+        dateCondition = {
+          OR: [
+            { pre_date: { gte: d } },
+            { pre_date: null, created_at: { gte: d } }
+          ]
+        };
       } else if (dateFilter === "last30") {
         const d = new Date();
         d.setDate(d.getDate() - 30);
         d.setHours(0, 0, 0, 0);
-        where[dateField] = { gte: d };
+        dateCondition = {
+          OR: [
+            { pre_date: { gte: d } },
+            { pre_date: null, created_at: { gte: d } }
+          ]
+        };
       } else if (dateFilter === "last90") {
         const d = new Date();
         d.setDate(d.getDate() - 90);
         d.setHours(0, 0, 0, 0);
-        where[dateField] = { gte: d };
+        dateCondition = {
+          OR: [
+            { pre_date: { gte: d } },
+            { pre_date: null, created_at: { gte: d } }
+          ]
+        };
       } else if (dateFilter === "custom" && startDate && endDate) {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        where[dateField] = {
-          gte: start,
-          lte: end,
+        dateCondition = {
+          OR: [
+            { pre_date: { gte: start, lte: end } },
+            { pre_date: null, created_at: { gte: start, lte: end } }
+          ]
         };
+      }
+
+      if (Object.keys(dateCondition).length > 0) {
+        if (where.AND) where.AND.push(dateCondition);
+        else where.AND = [dateCondition];
       }
     }
 

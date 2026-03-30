@@ -730,7 +730,7 @@ const getAllReconciliations = async ({
         const buyCode = deal.buyCurrency?.code;
         const sellCode = deal.sellCurrency?.code;
 
-        if (buyCode === "USD" || sellCode === "USD") {
+        if (deal.deal_type === "buy" && (buyCode === "USD" || sellCode === "USD")) {
           usdDealsCount++;
           sumUsdRates += Number(deal.exchange_rate || 0);
         }

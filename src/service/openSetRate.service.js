@@ -115,6 +115,7 @@ const getOpenSetRates = async (date) => {
                         amount: true,
                         amount_to_be_paid: true,
                         exchange_rate: true,
+                        deal_type: true,
                         buyCurrency: { select: { code: true } },
                         sellCurrency: { select: { code: true } },
                     }
@@ -123,10 +124,12 @@ const getOpenSetRates = async (date) => {
                 if (recentDeals.length > 0) {
                     let sumRates = 0, count = 0;
                     recentDeals.forEach(deal => {
-                        const amount = Number(deal.amount || 0);
-                        const amtPaid = Number(deal.amount_to_be_paid || 0);
-                        const effective = amount > 0 ? amtPaid / amount : Number(deal.exchange_rate || 0);
-                        if (effective > 0) { sumRates += effective; count++; }
+                        if (deal.deal_type === "buy") {
+                            const amount = Number(deal.amount || 0);
+                            const amtPaid = Number(deal.amount_to_be_paid || 0);
+                            const effective = amount > 0 ? amtPaid / amount : Number(deal.exchange_rate || 0);
+                            if (effective > 0) { sumRates += effective; count++; }
+                        }
                     });
                     if (count > 0) previousRate = Math.round(sumRates / count);
                 }
@@ -195,10 +198,12 @@ const propagateAverageRateToNextDay = async (todayDateInput, userId) => {
         if (deals.length > 0) {
             let sumRates = 0, count = 0;
             deals.forEach(deal => {
-                const rate = Number(deal.exchange_rate || 0);
-                if (rate > 0) {
-                    sumRates += rate;
-                    count++;
+                if (deal.deal_type === "buy") {
+                    const rate = Number(deal.exchange_rate || 0);
+                    if (rate > 0) {
+                        sumRates += rate;
+                        count++;
+                    }
                 }
             });
             if (count > 0) averageRate = Math.round(sumRates / count);

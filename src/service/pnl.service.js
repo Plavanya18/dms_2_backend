@@ -26,7 +26,53 @@ const getPnLOverview = async () => {
             },
         });
 
-        const totalGrossPnL = reconciliations.reduce((sum, r) => sum + Number(r.profitLoss || 0), 0);
+        const totalGrossPnL = reconciliations.reduce((sum, rec) => {
+            let totalTzsPaid = 0;
+            let totalForeignBought = 0;
+
+            rec.deals.forEach((rd) => {
+                const deal = rd.deal;
+                if (!deal) return;
+
+                let foreignAmount = Number(deal.amount || 0);
+                let tzsAmount = Number(deal.amount_to_be_paid || 0);
+
+                if (deal.status === "Pending") {
+                    foreignAmount = (deal.receivedItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+                    tzsAmount = (deal.paidItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+
+                    if (deal.deal_type === "sell") {
+                        foreignAmount = (deal.paidItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+                        tzsAmount = (deal.receivedItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+                    }
+                }
+
+                const buyCode = deal.buyCurrency?.code;
+                if (deal.deal_type === "buy" && buyCode !== "TZS") {
+                    totalTzsPaid += tzsAmount;
+                    totalForeignBought += foreignAmount;
+                }
+            });
+
+            const valuationRate = totalForeignBought > 0 ? totalTzsPaid / totalForeignBought : 0;
+
+            let openingUSD = 0, openingTZS = 0;
+            rec.openingEntries.forEach(o => {
+                if (o.currency.code === "USD") openingUSD += Number(o.amount || 0);
+                if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
+            });
+
+            let closingUSD = 0, closingTZS = 0;
+            rec.closingEntries.forEach(c => {
+                if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
+                if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
+            });
+
+            const totalOpeningValue = openingUSD * valuationRate + openingTZS;
+            const totalClosingValue = closingUSD * valuationRate + closingTZS;
+            
+            return sum + (totalClosingValue - totalOpeningValue);
+        }, 0);
 
         // Fetch total expenses
         const totalExpenses = await getdb.expense.aggregate({

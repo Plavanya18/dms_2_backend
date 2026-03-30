@@ -874,6 +874,7 @@ const getAllReconciliations = async ({
           include: {
             deal: {
               include: {
+                customer: { select: { name: true } },
                 buyCurrency: true,
                 sellCurrency: true,
                 receivedItems: true,
@@ -937,16 +938,6 @@ const getAllReconciliations = async ({
           ? totalTzsPaid / totalForeignBought
           : 0;
 
-      // OPTIONAL (better accuracy: net position)
-      /*
-      const netForeign = totalForeignBought - totalForeignSold;
-      const netTzs = totalTzsPaid - totalTzsReceived;
-
-      const valuationRate = netForeign !== 0
-        ? Math.abs(netTzs / netForeign)
-        : 0;
-      */
-
       // ---------------- OPENING / CLOSING ----------------
       let openingUSD = 0, openingTZS = 0;
       rec.openingEntries.forEach(o => {
@@ -967,13 +958,8 @@ const getAllReconciliations = async ({
       const totalOpeningValue = openingUSD * openingRate + openingTZS;
       const totalClosingValue = closingUSD * closingRate + closingTZS;
 
-      // ---------------- VALUE FLOW ----------------
-      const totalValueOut = totalTzsPaid + (totalForeignSold * closingRate);
-      const totalValueIn = totalTzsReceived + (totalForeignBought * closingRate);
-
-      const profitLoss =
-        (totalClosingValue + totalValueOut) -
-        (totalOpeningValue + totalValueIn);
+      // Simplified PnL formula matching spreadsheet
+      const profitLoss = totalClosingValue - totalOpeningValue;
 
       return {
         ...rec,
@@ -981,6 +967,7 @@ const getAllReconciliations = async ({
         totalTzsReceived,
         totalForeignBought,
         totalForeignSold,
+        total_transactions: rec.deals.length,
         totalOpeningValue,
         totalClosingValue,
         valuationRate,

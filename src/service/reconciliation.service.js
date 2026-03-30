@@ -578,33 +578,27 @@ const getAllReconciliations = async ({
           start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
           end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
-
         case "yesterday":
           const yesterdayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
           start = new Date(Date.UTC(yesterdayUTC.getUTCFullYear(), yesterdayUTC.getUTCMonth(), yesterdayUTC.getUTCDate(), 0, 0, 0, 0));
           end = new Date(Date.UTC(yesterdayUTC.getUTCFullYear(), yesterdayUTC.getUTCMonth(), yesterdayUTC.getUTCDate(), 23, 59, 59, 999));
           break;
-
         case "last7":
           start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7, 0, 0, 0, 0));
           end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
-
         case "last30":
           start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 30, 0, 0, 0, 0));
           end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
-
         case "last90":
           start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 90, 0, 0, 0, 0));
           end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
           break;
-
         case "thisMonth":
           start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
           end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
           break;
-
         case "custom":
           if (startDate && endDate) {
             const s = new Date(startDate);
@@ -615,19 +609,13 @@ const getAllReconciliations = async ({
             throw new Error("For custom dateFilter, startDate and endDate are required");
           }
           break;
-
         default:
           throw new Error("Invalid dateFilter value");
       }
     }
 
-    if (status) {
-      where.status = status;
-    }
-
-    if (start && end) {
-      where.created_at = { gte: start, lte: end };
-    }
+    if (status) where.status = status;
+    if (start && end) where.created_at = { gte: start, lte: end };
 
     const total = await getdb.reconciliation.count({ where });
 
@@ -635,14 +623,10 @@ const getAllReconciliations = async ({
       where,
       include: {
         openingEntries: {
-          include: {
-            currency: { select: { id: true, code: true, name: true } }
-          }
+          include: { currency: { select: { id: true, code: true, name: true } } }
         },
         closingEntries: {
-          include: {
-            currency: { select: { id: true, code: true, name: true } }
-          }
+          include: { currency: { select: { id: true, code: true, name: true } } }
         },
         notes: true,
         deals: {
@@ -666,40 +650,26 @@ const getAllReconciliations = async ({
       take: (format === "pdf" || format === "excel") ? undefined : limit
     });
 
-    // ✅ Normalize reconciliation dates (FIX)
-    const reconciliationDates = [
-      ...new Set(reconciliations.map(r => formatDate(r.created_at)))
-    ];
+    const reconciliationDates = [...new Set(reconciliations.map(r => formatDate(r.created_at)))];
 
     const openSetRates = await getdb.openSetRate.findMany({
-      where: {
-        date: {
-          in: reconciliationDates.map(d => new Date(d + "T00:00:00Z"))
-        }
-      },
+      where: { date: { in: reconciliationDates.map(d => new Date(d + "T00:00:00Z")) } },
       include: { currency: true }
     });
 
-    // ✅ Normalize mapping (FIX)
     const ratesByDate = openSetRates.reduce((acc, rate) => {
       const dateKey = formatDate(rate.date);
-
       if (!acc[dateKey]) acc[dateKey] = {};
       acc[dateKey][rate.currency.code] = rate;
-
       return acc;
     }, {});
 
+    // --- Enhanced Data with Correct Formulas ---
     const enhancedData = reconciliations.map((rec) => {
       const dateKey = formatDate(rec.created_at);
 
-      let totalTzsPaid = 0;
-      let totalTzsReceived = 0;
-      let totalForeignBought = 0;
-      let totalForeignSold = 0;
-
-      let usdDealsCount = 0;
-      let sumUsdRates = 0;
+      let totalTzsPaid = 0, totalTzsReceived = 0, totalForeignBought = 0, totalForeignSold = 0;
+      let usdDealsCount = 0, sumUsdRates = 0;
 
       rec.deals.forEach(rd => {
         const deal = rd.deal;
@@ -711,7 +681,6 @@ const getAllReconciliations = async ({
         if (deal.status === "Pending") {
           foreignAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
           tzsAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
-
           if (deal.deal_type === "sell") {
             foreignAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
             tzsAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
@@ -738,12 +707,9 @@ const getAllReconciliations = async ({
       });
 
       const valuationRate = usdDealsCount > 0 ? sumUsdRates / usdDealsCount : 0;
-
-      // Manual Rate (Opening Set Rate): Use the TZS record from the opensetrate table
       const tzsRates = ratesByDate[dateKey]?.["TZS"];
       const manualRate = tzsRates ? Number(tzsRates.set_rate) : 0;
 
-      // Requirement: Opening uses manual rate, Closing uses average (if deals exist)
       const openingRate = manualRate || valuationRate;
       const closingRate = usdDealsCount > 0 ? valuationRate : (manualRate || 0);
 
@@ -752,7 +718,6 @@ const getAllReconciliations = async ({
         if (o.currency.code === "USD") openingUSD += Number(o.amount || 0);
         else if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
-
       const totalOpeningValue = openingUSD * openingRate + openingTZS;
 
       let closingUSD = 0, closingTZS = 0;
@@ -760,7 +725,6 @@ const getAllReconciliations = async ({
         if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
         else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
-
       const totalClosingValue = closingUSD * closingRate + closingTZS;
 
       const totalValueOut = totalTzsPaid + (totalForeignSold * closingRate);
@@ -798,23 +762,24 @@ const getAllReconciliations = async ({
     todayDate.setHours(0, 0, 0, 0);
 
     const todayRates = openSetRates.filter(r => formatDate(r.date) === formatDate(todayDate)).reduce((acc, rate) => {
-      acc[rate.currency.code] = {
-        setRate: Number(rate.set_rate)
-      };
+      acc[rate.currency.code] = { setRate: Number(rate.set_rate) };
       return acc;
     }, {});
 
     const prevTzsRate = await getdb.openSetRate.findFirst({
-      where: {
-        date: { lt: todayDate },
-        currency: { code: "TZS" }
-      },
+      where: { date: { lt: todayDate }, currency: { code: "TZS" } },
       orderBy: { date: "desc" }
     });
 
     return {
+      message: "Reconciliations fetched successfully",
       data: enhancedData,
-      total,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      },
       todayRates,
       previousRate: prevTzsRate ? Number(prevTzsRate.set_rate) : 0
     };
@@ -824,7 +789,6 @@ const getAllReconciliations = async ({
     throw error;
   }
 };
-
 // const getAllReconciliations = async ({
 //   page = 1,
 //   limit = 10,

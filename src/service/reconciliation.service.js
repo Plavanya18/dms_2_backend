@@ -11,11 +11,19 @@ const openSetRateService = require("./openSetRate.service");
 const formatDate = (date) => {
   if (!date) return "";
   const d = new Date(date);
-  // Using getUTC* to ensure consistency across servers, as pre_date/created_at are stored as UTC
   const year = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const formatDateDDMMYYYY = (date) => {
+  if (!date) return "";
+  const d = new Date(date);
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  return `${day}/${month}/${year}`;
 };
 
 const getCurrentDayReconciliation = async (userId) => {
@@ -564,7 +572,8 @@ const getAllReconciliations = async ({
   format,
   userId = null,
   roleName = "",
-  userOnly = false
+  userOnly = false,
+  reportType
 }) => {
   try {
     const skip = (page - 1) * limit;
@@ -652,6 +661,7 @@ const getAllReconciliations = async ({
       include: {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
+        createdBy: { select: { id: true, full_name: true, email: true } },
         deals: {
           include: {
             deal: {
@@ -776,7 +786,14 @@ const getAllReconciliations = async ({
     }
 
     if (format === "pdf") {
-      const filePath = await generatePDF(enhancedData);
+      let downloadingUser = null;
+      if (userId) {
+        downloadingUser = await getdb.user.findUnique({
+          where: { id: Number(userId) },
+          select: { full_name: true, phone_number: true, email: true }
+        });
+      }
+      const filePath = await generatePDF(enhancedData, { startDate, endDate, user: downloadingUser, reportType });
       return { filePath };
     }
 
@@ -1027,76 +1044,191 @@ const generateExcel = async (recs) => {
   return filePath;
 };
 
-const generatePDF = async (recs) => {
+const generatePDF = async (recs, options = {}) => {
   let folder = path.join(os.homedir(), "Desktop");
   if (!fs.existsSync(folder)) {
     folder = path.join(__dirname, "../downloads");
     if (!fs.existsSync(folder)) fs.mkdirSync(folder);
   }
-  const filePath = path.join(folder, `reconciliations_${Date.now()}.pdf`);
-  const doc = new PDFDocument({ margin: 40, size: "A4" });
+  const filePath = path.join(folder, `reconciliation_report_${Date.now()}.pdf`);
+  const doc = new PDFDocument({ margin: 30, size: "A4", layout: "portrait" });
+
   const writeStream = fs.createWriteStream(filePath);
   doc.pipe(writeStream);
 
-  doc.fontSize(18).text("Reconciliation Report", { underline: true });
-  doc.moveDown(1);
+  // 🎨 COLORS & CONSTANTS (Professional Blue Theme)
+  const PRIMARY_COLOR = "#1D4CB5";
+  const TEXT_COLOR = "#333333";
+  const SECONDARY_TEXT = "#666666";
+  const BORDER_COLOR = "#EEEEEE";
+  const WHITE = "#FFFFFF";
 
-  recs.forEach((r) => {
-    // Aggregate opening entries by currency code
+  const { startDate, endDate, reportType } = options;
+  const isPnlReport = reportType === "P&L";
+
+  const dateRangeStr = startDate && endDate 
+    ? `From ${formatDateDDMMYYYY(startDate)} To ${formatDateDDMMYYYY(endDate)}`
+    : `Generated on ${new Date().toLocaleDateString()}`;
+
+  // --- 🏷️ HEADER SECTION ---
+  const drawHeader = () => {
+    doc.rect(0, 0, doc.page.width, 8).fill(PRIMARY_COLOR);
+
+    const drawUsoftLogo = (docInst, x, y, size = 42) => {
+      const scale = size / 16;
+      docInst.save();
+      docInst.translate(x, y);
+      docInst.scale(scale);
+      const grad = docInst.linearGradient(8, 0, 8, 16);
+      grad.stop(0, "#07122A"); grad.stop(1, "#123FA2");
+      docInst.roundedRect(0, 0, 16, 16, 2).fill(grad);
+      docInst.path("M5.67578 3.33203V8.6377C5.6759 9.11929 5.78028 9.54823 5.99023 9.92285C6.20439 10.2974 6.50561 10.5916 6.89258 10.8057C7.27973 11.0198 7.73129 11.127 8.24609 11.127C8.76481 11.1269 9.21572 11.0197 9.59863 10.8057C9.98565 10.5916 10.2851 10.2975 10.4951 9.92285C10.7092 9.54823 10.8163 9.11929 10.8164 8.6377V5.88965L13.4912 7.2207V8.86621C13.4911 9.78858 13.2707 10.5963 12.8301 11.2881C12.3935 11.9798 11.7816 12.5191 10.9951 12.9062C10.2085 13.2892 9.29206 13.4814 8.24609 13.4814C7.19582 13.4814 6.27693 13.2893 5.49023 12.9062C4.70371 12.5192 4.09187 11.9798 3.65527 11.2881C3.21877 10.5963 3.00012 9.78858 3 8.86621V2L5.67578 3.33203Z").fill("white");
+      docInst.rect(8.53259, 3.57251, 2.32942, 2.32942).fill("#5761D7");
+      docInst.rect(10.8619, 2.29102, 1.28118, 1.28118).fill("#DA0404");
+      docInst.restore();
+    };
+
+    drawUsoftLogo(doc, 30, 30);
+    doc.fillColor(TEXT_COLOR).fontSize(18).font("Helvetica-Bold").text("Usoft", 80, 40);
+
+    const { user } = options;
+    const downloaderName = (user?.full_name || "");
+    const downloaderPhone = user?.phone_number || "";
+    const downloaderEmail = user?.email || "";
+
+    const rightAlignX = doc.page.width - 230;
+    doc.fillColor(SECONDARY_TEXT).fontSize(8).font("Helvetica");
+    if (downloaderName) doc.text(`Generated by: ${downloaderName}`, rightAlignX, 35, { align: "right", width: 200 });
+    if (downloaderPhone) doc.text(`Phone: ${downloaderPhone}`, rightAlignX, 48, { align: "right", width: 200 });
+    if (downloaderEmail) doc.text(`Email: ${downloaderEmail}`, rightAlignX, 61, { align: "right", width: 200 });
+
+    doc.moveTo(30, 85).lineTo(doc.page.width - 30, 85).strokeColor(BORDER_COLOR).stroke();
+  };
+
+  drawHeader();
+
+  // --- 🏢 TITLE SECTION ---
+  doc.fillColor(TEXT_COLOR).fontSize(14).font("Helvetica-Bold").text(isPnlReport ? "P&L Report" : "Reconciliation Report", 30, 100);
+  doc.fontSize(8).font("Helvetica").fillColor(SECONDARY_TEXT).text(dateRangeStr, 30, 120);
+
+  // --- 🛒 COMPACT TABLE (DYNAMIC COLUMNS) ---
+  const COLUMN_WIDTHS = isPnlReport ? {
+    date: 60,
+    by: 60,
+    deals: 35,
+    openRate: 65,
+    closeRate: 65,
+    openingVal: 90,
+    closingVal: 90,
+    pnl: 70
+  } : {
+    status: 80,
+    date: 85,
+    openingVault: 150,
+    closingVault: 150,
+    by: 70
+  };
+
+  const drawTableHeader = (y) => {
+    doc.rect(30, y, 535, 25).fill(PRIMARY_COLOR);
+    doc.fillColor(WHITE).fontSize(7).font("Helvetica-Bold");
+    let currentX = 35;
+    if (isPnlReport) {
+      doc.text("Date", currentX, y + 9); currentX += COLUMN_WIDTHS.date;
+      doc.text("Created By", currentX, y + 9); currentX += COLUMN_WIDTHS.by;
+      doc.text("Deals", currentX, y + 9); currentX += COLUMN_WIDTHS.deals;
+      doc.text("Open Rate", currentX, y + 9); currentX += COLUMN_WIDTHS.openRate;
+      doc.text("Close Rate", currentX, y + 9); currentX += COLUMN_WIDTHS.closeRate;
+      doc.text("Open Bal", currentX, y + 9); currentX += COLUMN_WIDTHS.openingVal;
+      doc.text("Close Bal", currentX, y + 9); currentX += COLUMN_WIDTHS.closingVal;
+      doc.text("P&L (TZS)", currentX, y + 9);
+    } else {
+      doc.text("Status", currentX, y + 9); currentX += COLUMN_WIDTHS.status;
+      doc.text("Date", currentX, y + 9); currentX += COLUMN_WIDTHS.date;
+      doc.text("Opening Vault", currentX, y + 9); currentX += COLUMN_WIDTHS.openingVault;
+      doc.text("Closing Vault", currentX, y + 9); currentX += COLUMN_WIDTHS.closingVault;
+      doc.text("Created By", currentX, y + 9);
+    }
+  };
+
+  let currentY = 145;
+  drawTableHeader(currentY);
+  currentY += 30;
+
+  recs.forEach((r, index) => {
     const openingByCurr = {};
     (r.openingEntries || []).forEach(o => {
       const code = o.currency?.code || "?";
       openingByCurr[code] = (openingByCurr[code] || 0) + Number(o.amount || 0);
     });
-    const openingStr = Object.entries(openingByCurr)
-      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
-      .join("; ") || "—";
+    const openingEntriesList = Object.entries(openingByCurr)
+      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`);
+    const openingVaultStr = openingEntriesList.join("\n") || "—";
 
-    // Aggregate closing entries by currency code
     const closingByCurr = {};
     (r.closingEntries || []).forEach(c => {
       const code = c.currency?.code || "?";
       closingByCurr[code] = (closingByCurr[code] || 0) + Number(c.amount || 0);
     });
-    const closingStr = Object.entries(closingByCurr)
-      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
-      .join("; ") || "—";
+    const closingEntriesList = Object.entries(closingByCurr)
+      .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`);
+    const closingVaultStr = closingEntriesList.join("\n") || "—";
 
-    const openingBalance = Number(r.totalOpeningValue || 0).toLocaleString();
-    const closingBalance = Number(r.totalClosingValue || 0).toLocaleString();
-    const pnl = Number(r.profitLoss || 0).toLocaleString();
-    const pnlSign = Number(r.profitLoss || 0) >= 0 ? "+" : "";
+    const lineCount = isPnlReport ? 1 : Math.max(openingEntriesList.length, closingEntriesList.length, 1);
+    const rowHeight = isPnlReport ? 18 : Math.max(18, lineCount * 9 + 4);
 
-    const notesStr = (r.notes || []).map((n) => n.note).join("; ") || "—";
-    const createdAt = new Date(r.created_at).toISOString().split("T")[0];
+    if (currentY + rowHeight > 780) {
+      doc.addPage();
+      currentY = 40;
+      drawTableHeader(currentY);
+      currentY += 30;
+    }
 
-    doc.fontSize(12)
-      .text(`ID: ${r.id}`)
-      .text(`Status: ${r.status}`)
-      .text(`Date: ${createdAt}`)
-      .text(`Created By: ${r.createdBy?.full_name || "—"}`);
+    doc.fillColor(TEXT_COLOR).fontSize(7).font("Helvetica");
+    if (index % 2 === 1) {
+      doc.rect(30, currentY - 4, 535, rowHeight).fill("#F7F9FF");
+      doc.fillColor(TEXT_COLOR);
+    }
 
-    doc.moveDown(0.3);
-    doc.text(`Opening Entries: ${openingStr}`);
-    doc.text(`Opening Book Balance: ${openingBalance} TZS`);
+    let currentX = 35;
+    if (isPnlReport) {
+      doc.text(formatDateDDMMYYYY(r.created_at), currentX, currentY); currentX += COLUMN_WIDTHS.date;
+      const creatorName = (r.createdBy?.full_name || "N/A").split(" ")[0];
+      doc.text(creatorName, currentX, currentY); currentX += COLUMN_WIDTHS.by;
+      doc.text((r.deals?.length || 0).toString(), currentX, currentY); currentX += COLUMN_WIDTHS.deals;
+      doc.text(Number(r.openingRate || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.openRate;
+      doc.text(Number(r.valuationRate || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.closeRate;
+      doc.text(Number(r.totalOpeningValue || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.openingVal;
+      doc.text(Number(r.totalClosingValue || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.closingVal;
+      
+      const pnl = Number(r.profitLoss || 0);
+      doc.fillColor(pnl >= 0 ? TEXT_COLOR : "#D93025").text(`${pnl >= 0 ? "+" : ""}${pnl.toLocaleString()}`, currentX, currentY);
+    } else {
+      doc.text(r.status, currentX, currentY); currentX += COLUMN_WIDTHS.status;
+      doc.text(formatDateDDMMYYYY(r.created_at), currentX, currentY); currentX += COLUMN_WIDTHS.date;
+      doc.text(openingVaultStr, currentX, currentY, { width: COLUMN_WIDTHS.openingVault - 5 }); currentX += COLUMN_WIDTHS.openingVault;
+      doc.text(closingVaultStr, currentX, currentY, { width: COLUMN_WIDTHS.closingVault - 5 }); currentX += COLUMN_WIDTHS.closingVault;
+      const creatorName = (r.createdBy?.full_name || "N/A").split(" ")[0];
+      doc.text(creatorName, currentX, currentY);
+    }
 
-    doc.moveDown(0.3);
-    doc.text(`Closing Entries: ${closingStr}`);
-    doc.text(`Closing Book Balance: ${closingBalance} TZS`);
-
-    doc.moveDown(0.3);
-    doc.text(`Profit / Loss: ${pnlSign}${pnl} TZS`);
-
-    doc.moveDown(1);
-    doc.text("---------------------------------------------");
-    doc.moveDown(1);
+    currentY += rowHeight;
   });
+
+  const drawFooter = (docInst) => {
+    const footerY = docInst.page.height - 80;
+    docInst.moveTo(30, footerY).lineTo(docInst.page.width - 30, footerY).strokeColor(BORDER_COLOR).stroke();
+    docInst.fillColor(TEXT_COLOR).fontSize(9).font("Helvetica-Bold").text("Notes & Remarks :", 30, footerY + 10);
+    docInst.fillColor(SECONDARY_TEXT).fontSize(7).font("Helvetica");
+    docInst.text("All reconciliation values are subject to manager audit.", 30, footerY + 22);
+    docInst.fontSize(7).text(`Page ${docInst.bufferedPageRange().count}`, docInst.page.width - 60, footerY + 55);
+  };
+
+  let pages = doc.bufferedPageRange();
+  for (let i = 0; i < pages.count; i++) { doc.switchToPage(i); drawFooter(doc); }
 
   doc.end();
-
-  return new Promise((resolve) => {
-    writeStream.on("finish", () => resolve(filePath));
-  });
+  return new Promise((resolve) => { writeStream.on("finish", () => resolve(filePath)); });
 };
 
 const getReconciliationById = async (id, userId = null, roleName = "") => {

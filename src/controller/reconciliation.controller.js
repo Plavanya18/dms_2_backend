@@ -35,6 +35,7 @@ const getAllReconciliations = async (req, res) => {
       endDate,
       status,
       format,
+      reportType,
       userOnly = false,
     } = req.query;
 
@@ -49,7 +50,8 @@ const getAllReconciliations = async (req, res) => {
       endDate,
       status,
       format,
-      // userId: req.user,
+      reportType,
+      userId: req.user,
       roleName: req.roleName,
       userOnly: userOnly === "true" || userOnly === true
     });

@@ -5,6 +5,7 @@ const fs = require("fs");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const os = require("os");
+const openSetRateService = require("./openSetRate.service");
 
 // ✅ Standardized date formatter to prevent timezone shifts (YYYY-MM-DD)
 const formatDate = (date) => {
@@ -670,8 +671,8 @@ const getAllReconciliations = async ({
       take: (format === "pdf" || format === "excel") ? undefined : limit
     });
 
-    // ---------------- CALCULATIONS ----------------
-    const enhancedData = reconciliations.map((rec) => {
+    // ---------------- CALCULATIONS (ASYNC) ----------------
+    const enhancedData = await Promise.all(reconciliations.map(async (rec) => {
 
       let totalTzsPaid = 0;
       let totalTzsReceived = 0;
@@ -726,6 +727,8 @@ const getAllReconciliations = async ({
         : 0;
 
       // ---------------- OPENING ----------------
+      const { previousRate } = await openSetRateService.getOpenSetRates(rec.created_at);
+
       let openingUSD = 0, openingTZS = 0;
 
       rec.openingEntries.forEach(o => {
@@ -733,12 +736,8 @@ const getAllReconciliations = async ({
         if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
 
-      const openingRate = valuationRate || 0;
-      console.log("openingRate", openingRate);
-      console.log("openingUSD", openingUSD);
-      console.log("openingTZS", openingTZS);
+      const openingRate = previousRate || valuationRate || 0;
       const totalOpeningValue = (openingUSD * openingRate) + openingTZS;
-      console.log("totalOpeningValue", totalOpeningValue);
 
       // ---------------- CLOSING ----------------
       let closingUSD = 0, closingTZS = 0;
@@ -748,17 +747,11 @@ const getAllReconciliations = async ({
         if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
 
-      const closingRate = valuationRate || 0;
+      // Closing Rate defaults to today's valuationRate, but if no deals today, use openingRate
+      const closingRate = valuationRate || openingRate || 0;
       const totalClosingValue = (closingUSD * closingRate) + closingTZS;
 
-      console.log("closingRate", closingRate);
-      console.log("closingUSD", closingUSD);
-      console.log("closingTZS", closingTZS);
-      console.log("totalClosingValue", totalClosingValue);
       // ---------------- PROFIT ----------------
-      const totalBuyValue = totalTzsPaid;
-      const totalSellValue = totalTzsReceived;
-
       const profitLoss = (totalClosingValue - totalOpeningValue);
 
       return {
@@ -769,11 +762,12 @@ const getAllReconciliations = async ({
         totalForeignSold: Number(totalForeignSold.toFixed(2)),
         total_transactions: rec.deals.length,
         valuationRate: Math.round(valuationRate),
+        openingRate: Math.round(openingRate), // Explicitly return opening rate
         totalOpeningValue: Math.round(totalOpeningValue),
         totalClosingValue: Math.round(totalClosingValue),
         profitLoss: Math.round(profitLoss)
       };
-    });
+    }));
 
     // ---------------- EXPORT ----------------
     if (format === "excel") {
@@ -1280,6 +1274,10 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
 
     const valuationRate = usdCurrency?.avgBuyRate || 0;
 
+    // FETCH PREVIOUS RATE FOR OPENING
+    const { previousRate } = await openSetRateService.getOpenSetRates(rec.created_at);
+    const openingRate = previousRate || valuationRate || 0;
+
     // OPENING / CLOSING BALANCES
     let openingUSD = 0;
     let openingTZS = 0;
@@ -1296,7 +1294,7 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
       if (c.currency.code === "TZS") closingTZS += Number(c.amount);
     }
 
-    const totalOpeningValue = openingUSD * valuationRate + openingTZS;
+    const totalOpeningValue = openingUSD * openingRate + openingTZS;
     const totalClosingValue = closingUSD * valuationRate + closingTZS;
 
     const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate);

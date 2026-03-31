@@ -751,9 +751,7 @@ const getAllReconciliations = async ({
       const totalBuyValue = totalTzsPaid;
       const totalSellValue = totalTzsReceived;
 
-      const profitLoss =
-        (totalSellValue - totalBuyValue) +
-        (totalClosingValue - totalOpeningValue);
+      const profitLoss = (totalClosingValue - totalOpeningValue);
 
       return {
         ...rec,

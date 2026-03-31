@@ -51,12 +51,13 @@ const getOpenSetRates = async (date) => {
         const dateString = formatDate(date);
         const targetDate = new Date(dateString + "T00:00:00Z");
 
+        // ---------------- CURRENT DAY RATES ----------------
         const rates = await getdb.openSetRate.findMany({
             where: { date: targetDate },
             include: { currency: true },
         });
 
-        // 1st: Previous TZS manual rate
+        // ---------------- STEP 1: GET PREVIOUS MANUAL RATE ----------------
         let previousRateRecord = await getdb.openSetRate.findFirst({
             where: {
                 date: { lt: targetDate },
@@ -65,7 +66,7 @@ const getOpenSetRates = async (date) => {
             orderBy: { date: "desc" }
         });
 
-        // 2nd: Any previous manual rate
+        // fallback: any previous rate
         if (!previousRateRecord) {
             previousRateRecord = await getdb.openSetRate.findFirst({
                 where: { date: { lt: targetDate } },
@@ -73,11 +74,14 @@ const getOpenSetRates = async (date) => {
             });
         }
 
-        let previousRate = previousRateRecord ? Number(previousRateRecord.set_rate) : 0;
+        let previousRate = previousRateRecord
+            ? Number(previousRateRecord.set_rate)
+            : 0;
 
-        // 3rd: Average computed from the MOST RECENT day with deals (if previousRate still 0)
+        // ---------------- STEP 2: IF NO MANUAL RATE → CALCULATE FROM DEALS ----------------
         if (!previousRate) {
-            // Find the most recent deal date before targetDate
+
+            // Find most recent deal before target date
             const lastDeal = await getdb.deal.findFirst({
                 where: {
                     OR: [
@@ -86,20 +90,29 @@ const getOpenSetRates = async (date) => {
                     ],
                     deleted_at: null,
                     AND: [
-                        { OR: [{ buyCurrency: { code: "USD" } }, { sellCurrency: { code: "USD" } }] }
+                        {
+                            OR: [
+                                { buyCurrency: { code: "USD" } },
+                                { sellCurrency: { code: "USD" } }
+                            ]
+                        }
                     ]
                 },
-                orderBy: { pre_date: "desc" }, // fallbacks handled by DB ordering usually
+                orderBy: { pre_date: "desc" },
                 select: { pre_date: true, created_at: true }
             });
 
             if (lastDeal) {
+
                 const effectiveLastDate = lastDeal.pre_date || lastDeal.created_at;
+
                 const lastDateStart = new Date(effectiveLastDate);
                 lastDateStart.setHours(0, 0, 0, 0);
+
                 const lastDateEnd = new Date(effectiveLastDate);
                 lastDateEnd.setHours(23, 59, 59, 999);
 
+                // ---------------- FETCH DEALS OF THAT DAY ----------------
                 const recentDeals = await getdb.deal.findMany({
                     where: {
                         OR: [
@@ -108,7 +121,12 @@ const getOpenSetRates = async (date) => {
                         ],
                         deleted_at: null,
                         AND: [
-                            { OR: [{ buyCurrency: { code: "USD" } }, { sellCurrency: { code: "USD" } }] }
+                            {
+                                OR: [
+                                    { buyCurrency: { code: "USD" } },
+                                    { sellCurrency: { code: "USD" } }
+                                ]
+                            }
                         ]
                     },
                     select: {
@@ -121,22 +139,47 @@ const getOpenSetRates = async (date) => {
                     }
                 });
 
+                // ---------------- ✅ WEIGHTED AVERAGE CALCULATION ----------------
                 if (recentDeals.length > 0) {
-                    let sumRates = 0, count = 0;
+
+                    let totalUsdAmount = 0;
+                    let totalUsdValue = 0;
+
                     recentDeals.forEach(deal => {
+
+                        // Only BUY deals for Open Rate
                         if (deal.deal_type === "buy") {
+
                             const amount = Number(deal.amount || 0);
                             const amtPaid = Number(deal.amount_to_be_paid || 0);
-                            const effective = amount > 0 ? amtPaid / amount : Number(deal.exchange_rate || 0);
-                            if (effective > 0) { sumRates += effective; count++; }
+                            const rate = Number(deal.exchange_rate || 0);
+
+                            // Prefer actual paid value, fallback to rate
+                            const value = amtPaid > 0
+                                ? amtPaid
+                                : (amount * rate);
+
+                            if (amount > 0 && value > 0) {
+                                totalUsdAmount += amount;
+                                totalUsdValue += value;
+                            }
                         }
                     });
-                    if (count > 0) previousRate = Math.round(sumRates / count);
+
+                    if (totalUsdAmount > 0) {
+                        previousRate = Number(
+                            (totalUsdValue / totalUsdAmount).toFixed(2)
+                        );
+                    }
                 }
             }
         }
 
-        return { rates, previousRate };
+        return {
+            rates,
+            previousRate
+        };
+
     } catch (error) {
         logger.error("Failed to fetch OpenSetRates:", error);
         throw error;

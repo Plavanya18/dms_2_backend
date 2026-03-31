@@ -285,12 +285,12 @@ const generateExpensesPDF = async (expenses, options = {}) => {
         doc.rect(30, y, 535, 25).fill(PRIMARY_COLOR);
         doc.fillColor(WHITE).fontSize(7).font("Helvetica-Bold");
         let currentX = 35;
-        doc.text("DATE", currentX, y + 9); currentX += COLUMN_WIDTHS.date;
-        doc.text("CATEGORY", currentX, y + 9); currentX += COLUMN_WIDTHS.category;
-        doc.text("DESCRIPTION", currentX, y + 9); currentX += COLUMN_WIDTHS.description;
-        doc.text("AMOUNT", currentX, y + 9); currentX += COLUMN_WIDTHS.amount;
-        doc.text("RATE", currentX, y + 9); currentX += COLUMN_WIDTHS.rate;
-        doc.text("CREATED BY", currentX, y + 9);
+        doc.text("Date", currentX, y + 9); currentX += COLUMN_WIDTHS.date;
+        doc.text("Category", currentX, y + 9); currentX += COLUMN_WIDTHS.category;
+        doc.text("Description", currentX, y + 9); currentX += COLUMN_WIDTHS.description;
+        doc.text("Amount", currentX, y + 9); currentX += COLUMN_WIDTHS.amount;
+        doc.text("Rate", currentX, y + 9); currentX += COLUMN_WIDTHS.rate;
+        doc.text("Created By", currentX, y + 9);
     };
 
     let currentY = 145;

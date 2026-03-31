@@ -100,7 +100,10 @@ const getAllExpenses = async (params = {}) => {
                     select: { full_name: true, phone_number: true, email: true }
                 });
             }
-            const filePath = await generateExpensesPDF(expenses, { startDate, endDate, user: downloader });
+
+            const sStr = startDate || (start ? start.toISOString().split("T")[0] : null);
+            const eStr = endDate || (end ? end.toISOString().split("T")[0] : null);
+            const filePath = await generateExpensesPDF(expenses, { startDate: sStr, endDate: eStr, user: downloader });
             return { filePath };
         }
 

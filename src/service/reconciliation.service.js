@@ -793,7 +793,10 @@ const getAllReconciliations = async ({
           select: { full_name: true, phone_number: true, email: true }
         });
       }
-      const filePath = await generatePDF(enhancedData, { startDate, endDate, user: downloadingUser, reportType });
+      
+      const sStr = startDate || (start ? start.toISOString().split("T")[0] : null);
+      const eStr = endDate || (end ? end.toISOString().split("T")[0] : null);
+      const filePath = await generatePDF(enhancedData, { startDate: sStr, endDate: eStr, user: downloadingUser, reportType });
       return { filePath };
     }
 

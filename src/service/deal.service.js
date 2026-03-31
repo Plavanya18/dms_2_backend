@@ -485,7 +485,27 @@ const getAllDeals = async (
           select: { full_name: true, phone_number: true, email: true }
         });
       }
-      const filePath = await generateDealsPDF(dealsWithTotals, { startDate, endDate, user: downloadingUser });
+
+      let sStr = startDate, eStr = endDate;
+      if (!sStr || !eStr) {
+        if (dateFilter === "today") {
+          sStr = eStr = now.toISOString().split("T")[0];
+        } else if (dateFilter === "last7") {
+          const d = new Date(now); d.setDate(d.getDate() - 7);
+          sStr = d.toISOString().split("T")[0];
+          eStr = now.toISOString().split("T")[0];
+        } else if (dateFilter === "last30") {
+          const d = new Date(now); d.setDate(d.getDate() - 30);
+          sStr = d.toISOString().split("T")[0];
+          eStr = now.toISOString().split("T")[0];
+        } else if (dateFilter === "last90") {
+          const d = new Date(now); d.setDate(d.getDate() - 90);
+          sStr = d.toISOString().split("T")[0];
+          eStr = now.toISOString().split("T")[0];
+        }
+      }
+
+      const filePath = await generateDealsPDF(dealsWithTotals, { startDate: sStr, endDate: eStr, user: downloadingUser });
       return { filePath, stats };
     }
 

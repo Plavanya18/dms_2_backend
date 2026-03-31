@@ -1,4 +1,5 @@
 const dealService = require("../service/deal.service");
+const fs = require("fs");
 
 const createDealController = async (req, res) => {
   try {
@@ -56,7 +57,11 @@ const listDealController = async (req, res) => {
     );
 
     if (result.filePath) {
-      return res.download(result.filePath);
+      return res.download(result.filePath, (err) => {
+        if (!err && fs.existsSync(result.filePath)) {
+          fs.unlinkSync(result.filePath);
+        }
+      });
     }
 
     return res.status(200).json({

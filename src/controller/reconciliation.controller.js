@@ -1,5 +1,6 @@
 const logger = require("../config/logger");
 const reconciliationService = require("../service/reconciliation.service");
+const fs = require("fs");
 
 const createReconciliation = async (req, res) => {
   try {
@@ -57,7 +58,11 @@ const getAllReconciliations = async (req, res) => {
     });
 
     if (result.filePath) {
-      return res.download(result.filePath);
+      return res.download(result.filePath, (err) => {
+        if (!err && fs.existsSync(result.filePath)) {
+          fs.unlinkSync(result.filePath);
+        }
+      });
     }
 
     return res.json({

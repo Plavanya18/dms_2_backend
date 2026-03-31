@@ -1,5 +1,6 @@
 const expenseService = require('../service/expense.service');
 const logger = require('../config/logger');
+const fs = require('fs');
 
 const createExpense = async (req, res) => {
     try {
@@ -15,7 +16,11 @@ const getAllExpenses = async (req, res) => {
     try {
         const result = await expenseService.getAllExpenses({ ...req.query, userId: req.user });
         if (result.filePath) {
-            return res.download(result.filePath);
+            return res.download(result.filePath, (err) => {
+                if (!err && fs.existsSync(result.filePath)) {
+                    fs.unlinkSync(result.filePath);
+                }
+            });
         }
         res.json({ success: true, ...result });
     } catch (error) {

@@ -763,15 +763,15 @@ const getAllReconciliations = async ({
 
       return {
         ...rec,
-        totalTzsPaid,
-        totalTzsReceived,
-        totalForeignBought,
-        totalForeignSold,
+        totalTzsPaid: Math.round(totalTzsPaid),
+        totalTzsReceived: Math.round(totalTzsReceived),
+        totalForeignBought: Number(totalForeignBought.toFixed(2)),
+        totalForeignSold: Number(totalForeignSold.toFixed(2)),
         total_transactions: rec.deals.length,
-        valuationRate: Number(valuationRate.toFixed(2)),
-        totalOpeningValue: Number(totalOpeningValue.toFixed(2)),
-        totalClosingValue: Number(totalClosingValue.toFixed(2)),
-        profitLoss: Number(profitLoss.toFixed(2))
+        valuationRate: Math.round(valuationRate),
+        totalOpeningValue: Math.round(totalOpeningValue),
+        totalClosingValue: Math.round(totalClosingValue),
+        profitLoss: Math.round(profitLoss)
       };
     });
 
@@ -1311,20 +1311,20 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
 
     return {
       ...rec,
-      totalTzsPaid,
-      totalTzsReceived,
-      totalForeignBought,
-      totalForeignSold,
-      totalTzsDifference,
-      totalForeignDifference,
-      totalWeightedAvgRate,
-      valuationRate,
+      totalTzsPaid: Math.round(totalTzsPaid),
+      totalTzsReceived: Math.round(totalTzsReceived),
+      totalForeignBought: Number(totalForeignBought.toFixed(2)),
+      totalForeignSold: Number(totalForeignSold.toFixed(2)),
+      totalTzsDifference: Math.round(totalTzsDifference),
+      totalForeignDifference: Number(totalForeignDifference.toFixed(2)),
+      totalWeightedAvgRate: Math.round(totalWeightedAvgRate),
+      valuationRate: Math.round(valuationRate),
       currencyStats,
-      totalOpeningValue,
-      totalClosingValue,
-      profitLoss,
-      opening_total,
-      closing_total,
+      totalOpeningValue: Math.round(totalOpeningValue),
+      totalClosingValue: Math.round(totalClosingValue),
+      profitLoss: Math.round(profitLoss),
+      opening_total: Math.round(opening_total),
+      closing_total: Math.round(closing_total),
       total_transactions,
     };
   } catch (error) {

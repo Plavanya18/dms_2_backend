@@ -569,107 +569,117 @@ const getAllReconciliations = async ({
     const skip = (page - 1) * limit;
     const where = {};
 
-    const now = new Date();
+    // ✅ ---------------- DATE HELPERS (LOCAL SAFE) ----------------
+    const startOfDay = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
+    const endOfDay = (date) => {
+      const d = new Date(date);
+      d.setHours(23, 59, 59, 999);
+      return d;
+    };
+
     let start, end;
 
+    // ✅ ---------------- DATE FILTER FIX ----------------
     if (dateFilter) {
+      const today = new Date();
+
       switch (dateFilter) {
         case "today":
-          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+          start = startOfDay(today);
+          end = endOfDay(today);
           break;
+
         case "yesterday":
-          const yesterdayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-          start = new Date(Date.UTC(yesterdayUTC.getUTCFullYear(), yesterdayUTC.getUTCMonth(), yesterdayUTC.getUTCDate(), 0, 0, 0, 0));
-          end = new Date(Date.UTC(yesterdayUTC.getUTCFullYear(), yesterdayUTC.getUTCMonth(), yesterdayUTC.getUTCDate(), 23, 59, 59, 999));
+          const y = new Date();
+          y.setDate(y.getDate() - 1);
+          start = startOfDay(y);
+          end = endOfDay(y);
           break;
+
         case "last7":
-          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 7, 0, 0, 0, 0));
-          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+          const last7 = new Date();
+          last7.setDate(last7.getDate() - 7);
+          start = startOfDay(last7);
+          end = endOfDay(today);
           break;
+
         case "last30":
-          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 30, 0, 0, 0, 0));
-          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+          const last30 = new Date();
+          last30.setDate(last30.getDate() - 30);
+          start = startOfDay(last30);
+          end = endOfDay(today);
           break;
-        case "last90":
-          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 90, 0, 0, 0, 0));
-          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-          break;
+
         case "thisMonth":
-          start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-          end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+          const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+          start = startOfDay(firstDay);
+          end = endOfDay(today);
           break;
+
         case "custom":
-          if (startDate && endDate) {
-            const s = new Date(startDate);
-            const e = new Date(endDate);
-            start = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate(), 0, 0, 0, 0));
-            end = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate(), 23, 59, 59, 999));
-          } else {
-            throw new Error("For custom dateFilter, startDate and endDate are required");
+          if (!startDate || !endDate) {
+            throw new Error("Custom filter requires startDate & endDate");
           }
+          start = startOfDay(new Date(startDate));
+          end = endOfDay(new Date(endDate));
           break;
+
         default:
-          throw new Error("Invalid dateFilter value");
+          throw new Error("Invalid dateFilter");
       }
     }
 
     if (status) where.status = status;
-    if (start && end) where.created_at = { gte: start, lte: end };
 
+    if (start && end) {
+      where.created_at = {
+        gte: start,
+        lte: end
+      };
+    }
+
+    // ---------------- FETCH ----------------
     const total = await getdb.reconciliation.count({ where });
 
     const reconciliations = await getdb.reconciliation.findMany({
       where,
       include: {
-        openingEntries: {
-          include: { currency: { select: { id: true, code: true, name: true } } }
-        },
-        closingEntries: {
-          include: { currency: { select: { id: true, code: true, name: true } } }
-        },
-        notes: true,
+        openingEntries: { include: { currency: true } },
+        closingEntries: { include: { currency: true } },
         deals: {
           include: {
             deal: {
               include: {
-                customer: { select: { name: true } },
-                buyCurrency: { select: { id: true, code: true, name: true } },
-                sellCurrency: { select: { id: true, code: true, name: true } },
-                createdBy: { select: { id: true, full_name: true, email: true } },
-                receivedItems: { include: { currency: { select: { id: true, code: true } } } },
-                paidItems: { include: { currency: { select: { id: true, code: true } } } }
+                customer: true,
+                buyCurrency: true,
+                sellCurrency: true,
+                receivedItems: true,
+                paidItems: true
               }
             }
           }
-        },
-        createdBy: { select: { id: true, full_name: true, email: true } }
+        }
       },
       orderBy: { created_at: "desc" },
       skip: (format === "pdf" || format === "excel") ? undefined : skip,
       take: (format === "pdf" || format === "excel") ? undefined : limit
     });
 
-    const reconciliationDates = [...new Set(reconciliations.map(r => formatDate(r.created_at)))];
-
-    const openSetRates = await getdb.openSetRate.findMany({
-      where: { date: { in: reconciliationDates.map(d => new Date(d + "T00:00:00Z")) } },
-      include: { currency: true }
-    });
-
-    const ratesByDate = openSetRates.reduce((acc, rate) => {
-      const dateKey = formatDate(rate.date);
-      if (!acc[dateKey]) acc[dateKey] = {};
-      acc[dateKey][rate.currency.code] = rate;
-      return acc;
-    }, {});
-
-    // --- Enhanced Data with Correct Formulas ---
+    // ---------------- CALCULATIONS ----------------
     const enhancedData = reconciliations.map((rec) => {
-      const dateKey = formatDate(rec.created_at);
 
-      let totalTzsPaid = 0, totalTzsReceived = 0, totalForeignBought = 0, totalForeignSold = 0;
-      let usdDealsCount = 0, sumUsdRates = 0;
+      let totalTzsPaid = 0;
+      let totalTzsReceived = 0;
+      let totalForeignBought = 0;
+      let totalForeignSold = 0;
+
+      let totalUsdAmount = 0;
+      let totalUsdValue = 0;
 
       rec.deals.forEach(rd => {
         const deal = rd.deal;
@@ -678,59 +688,72 @@ const getAllReconciliations = async ({
         let foreignAmount = Number(deal.amount || 0);
         let tzsAmount = Number(deal.amount_to_be_paid || 0);
 
+        // ✅ Pending handling
         if (deal.status === "Pending") {
-          foreignAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
-          tzsAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
+          foreignAmount = (deal.receivedItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+          tzsAmount = (deal.paidItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+
           if (deal.deal_type === "sell") {
-            foreignAmount = (deal.paidItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
-            tzsAmount = (deal.receivedItems || []).reduce((sum, itm) => sum + Number(itm.total || 0), 0);
+            foreignAmount = (deal.paidItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
+            tzsAmount = (deal.receivedItems || []).reduce((s, i) => s + Number(i.total || 0), 0);
           }
         }
 
         const buyCode = deal.buyCurrency?.code;
         const sellCode = deal.sellCurrency?.code;
 
+        // ✅ Weighted Avg
         if (deal.deal_type === "buy" && (buyCode === "USD" || sellCode === "USD")) {
-          usdDealsCount++;
-          sumUsdRates += Number(deal.exchange_rate || 0);
+          totalUsdAmount += foreignAmount;
+          totalUsdValue += foreignAmount * Number(deal.exchange_rate || 0);
         }
 
+        // BUY
         if (deal.deal_type === "buy" && buyCode !== "TZS") {
           totalTzsPaid += tzsAmount;
           totalForeignBought += foreignAmount;
         }
 
+        // SELL
         if (deal.deal_type === "sell" && sellCode !== "TZS") {
           totalTzsReceived += tzsAmount;
           totalForeignSold += foreignAmount;
         }
       });
 
-      const valuationRate = usdDealsCount > 0 ? sumUsdRates / usdDealsCount : 0;
-      const tzsRates = ratesByDate[dateKey]?.["TZS"];
-      const manualRate = tzsRates ? Number(tzsRates.set_rate) : 0;
+      const valuationRate = totalUsdAmount > 0
+        ? totalUsdValue / totalUsdAmount
+        : 0;
 
-      const openingRate = manualRate || valuationRate;
-      const closingRate = usdDealsCount > 0 ? valuationRate : (manualRate || 0);
-
+      // ---------------- OPENING ----------------
       let openingUSD = 0, openingTZS = 0;
+
       rec.openingEntries.forEach(o => {
         if (o.currency.code === "USD") openingUSD += Number(o.amount || 0);
-        else if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
+        if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
-      const totalOpeningValue = openingUSD * openingRate + openingTZS;
 
+      const openingRate = valuationRate || 0;
+      const totalOpeningValue = (openingUSD * openingRate) + openingTZS;
+
+      // ---------------- CLOSING ----------------
       let closingUSD = 0, closingTZS = 0;
+
       rec.closingEntries.forEach(c => {
         if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
-        else if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
+        if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
       });
-      const totalClosingValue = closingUSD * closingRate + closingTZS;
 
-      const totalValueOut = totalTzsPaid + (totalForeignSold * closingRate);
-      const totalValueIn = totalTzsReceived + (totalForeignBought * closingRate);
+      const closingRate = valuationRate || 0;
+      const totalClosingValue = (closingUSD * closingRate) + closingTZS;
 
-      const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
+      // ---------------- PROFIT ----------------
+      const totalBuyValue = totalTzsPaid;
+      const totalSellValue = totalTzsReceived;
+
+      const profitLoss =
+        (totalSellValue - totalBuyValue) +
+        (totalClosingValue - totalOpeningValue);
 
       return {
         ...rec,
@@ -739,15 +762,14 @@ const getAllReconciliations = async ({
         totalForeignBought,
         totalForeignSold,
         total_transactions: rec.deals.length,
-        totalOpeningValue,
-        totalClosingValue,
-        profitLoss,
-        valuationRate,
-        setRate: openingRate,
-        hasCustomRates: !!tzsRates
+        valuationRate: Number(valuationRate.toFixed(2)),
+        totalOpeningValue: Number(totalOpeningValue.toFixed(2)),
+        totalClosingValue: Number(totalClosingValue.toFixed(2)),
+        profitLoss: Number(profitLoss.toFixed(2))
       };
     });
 
+    // ---------------- EXPORT ----------------
     if (format === "excel") {
       const filePath = await generateExcel(enhancedData);
       return { filePath };
@@ -758,19 +780,7 @@ const getAllReconciliations = async ({
       return { filePath };
     }
 
-    const todayDate = new Date();
-    todayDate.setHours(0, 0, 0, 0);
-
-    const todayRates = openSetRates.filter(r => formatDate(r.date) === formatDate(todayDate)).reduce((acc, rate) => {
-      acc[rate.currency.code] = { setRate: Number(rate.set_rate) };
-      return acc;
-    }, {});
-
-    const prevTzsRate = await getdb.openSetRate.findFirst({
-      where: { date: { lt: todayDate }, currency: { code: "TZS" } },
-      orderBy: { date: "desc" }
-    });
-
+    // ---------------- RESPONSE ----------------
     return {
       message: "Reconciliations fetched successfully",
       data: enhancedData,
@@ -778,14 +788,12 @@ const getAllReconciliations = async ({
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit)
-      },
-      todayRates,
-      previousRate: prevTzsRate ? Number(prevTzsRate.set_rate) : 0
+        totalPages: total ? Math.ceil(total / limit) : 0
+      }
     };
 
   } catch (error) {
-    logger.error("Failed to fetch reconciliations:", error);
+    console.error("Reconciliation error:", error);
     throw error;
   }
 };

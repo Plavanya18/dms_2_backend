@@ -1081,7 +1081,7 @@ const generatePDF = async (recs, options = {}) => {
   const isPnlReport = reportType === "P&L";
 
   const dateRangeStr = startDate && endDate 
-    ? `From ${formatDateDDMMYYYY(startDate)} To ${formatDateDDMMYYYY(endDate)}`
+    ? (startDate === endDate ? `For ${formatDateDDMMYYYY(startDate)}` : `From ${formatDateDDMMYYYY(startDate)} To ${formatDateDDMMYYYY(endDate)}`)
     : `Generated on ${new Date().toLocaleDateString()}`;
 
   // --- 🏷️ HEADER SECTION ---

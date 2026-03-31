@@ -605,8 +605,8 @@ const generateDealsPDF = async (deals, options = {}) => {
   const WHITE = "#FFFFFF";
 
   const { startDate, endDate } = options;
-  const dateRangeStr = startDate && endDate 
-    ? `From ${formatDateDDMMYYYY(startDate)} To ${formatDateDDMMYYYY(endDate)}`
+  const dateRangeStr = (startDate && endDate)
+    ? (startDate === endDate ? `For ${formatDateDDMMYYYY(startDate)}` : `From ${formatDateDDMMYYYY(startDate)} To ${formatDateDDMMYYYY(endDate)}`)
     : `Generated on ${new Date().toLocaleDateString()}`;
 
   const drawHeader = () => {

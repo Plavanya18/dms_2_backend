@@ -593,7 +593,7 @@ const generateDealsPDF = async (deals, options = {}) => {
     if (!fs.existsSync(folder)) fs.mkdirSync(folder);
   }
   const filePath = path.join(folder, `deals_report_${Date.now()}.pdf`);
-  const doc = new PDFDocument({ margin: 30, size: "A4", layout: "portrait" });
+  const doc = new PDFDocument({ margin: 30, size: "A4", layout: "portrait", bufferPages: true });
 
   const writeStream = fs.createWriteStream(filePath);
   doc.pipe(writeStream);
@@ -693,7 +693,7 @@ const generateDealsPDF = async (deals, options = {}) => {
   currentY += 30;
 
   deals.forEach((d, index) => {
-    if (currentY > 750) {
+    if (currentY + 18 > 740) {
       doc.addPage();
       currentY = 40;
       drawTableHeader(currentY);

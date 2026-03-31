@@ -781,7 +781,7 @@ const getAllReconciliations = async ({
 
     // ---------------- EXPORT ----------------
     if (format === "excel") {
-      const filePath = await generateExcel(enhancedData);
+      const filePath = await generateExcel(enhancedData, { reportType });
       return { filePath };
     }
 
@@ -975,25 +975,34 @@ const getAllReconciliations = async ({
 //   }
 // };
 
-const generateExcel = async (recs) => {
+const generateExcel = async (recs, options = {}) => {
+  const { reportType } = options;
+  const isPnlReport = reportType === "P&L";
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Reconciliations");
+  const sheet = workbook.addWorksheet(isPnlReport ? "P&L Report" : "Reconciliation Report");
 
-  sheet.columns = [
-    { header: "ID", key: "id", width: 10 },
-    { header: "Status", key: "status", width: 15 },
-    { header: "Date", key: "created_at", width: 20 },
-    { header: "Created By", key: "created_by", width: 20 },
-    { header: "Opening Entries", key: "opening_entries", width: 50 },
-    { header: "Opening Book Balance (TZS)", key: "opening_book_balance", width: 30 },
-    { header: "Closing Entries", key: "closing_entries", width: 50 },
-    { header: "Closing Book Balance (TZS)", key: "closing_book_balance", width: 30 },
-    { header: "Profit / Loss (TZS)", key: "profit_loss", width: 25 },
-    { header: "Notes", key: "notes", width: 50 },
-  ];
+  if (isPnlReport) {
+    sheet.columns = [
+      { header: "Date", key: "date", width: 15 },
+      { header: "Created By", key: "created_by", width: 20 },
+      { header: "Total Deals", key: "total_deals", width: 15 },
+      { header: "Open Rate", key: "open_rate", width: 15 },
+      { header: "Close Rate", key: "close_rate", width: 15 },
+      { header: "Opening Balance (TZS)", key: "opening_bal", width: 25 },
+      { header: "Closing Balance (TZS)", key: "closing_bal", width: 25 },
+      { header: "Profit / Loss (TZS)", key: "profit_loss", width: 25 },
+    ];
+  } else {
+    sheet.columns = [
+      { header: "Status", key: "status", width: 15 },
+      { header: "Date", key: "date", width: 15 },
+      { header: "Opening Vault", key: "opening_vault", width: 40 },
+      { header: "Closing Vault", key: "closing_vault", width: 40 },
+      { header: "Created By", key: "created_by", width: 20 },
+    ];
+  }
 
   recs.forEach((r) => {
-    // Aggregate opening entries by currency code
     const openingByCurr = {};
     (r.openingEntries || []).forEach(o => {
       const code = o.currency?.code || "?";
@@ -1003,7 +1012,6 @@ const generateExcel = async (recs) => {
       .map(([code, amt]) => `${Number(amt).toLocaleString()} ${code}`)
       .join("; ");
 
-    // Aggregate closing entries by currency code
     const closingByCurr = {};
     (r.closingEntries || []).forEach(c => {
       const code = c.currency?.code || "?";
@@ -1015,18 +1023,28 @@ const generateExcel = async (recs) => {
 
     const notesStr = (r.notes || []).map((n) => n.note).join("; ");
 
-    sheet.addRow({
-      id: r.id,
-      status: r.status,
-      created_at: new Date(r.created_at).toISOString().split("T")[0],
-      created_by: r.createdBy?.full_name,
-      opening_entries: openingStr,
-      opening_book_balance: Number(r.totalOpeningValue || 0).toLocaleString(),
-      closing_entries: closingStr,
-      closing_book_balance: Number(r.totalClosingValue || 0).toLocaleString(),
-      profit_loss: Number(r.profitLoss || 0).toLocaleString(),
-      notes: notesStr,
-    });
+    if (isPnlReport) {
+      sheet.addRow({
+        date: formatDateDDMMYYYY(r.created_at),
+        created_by: r.createdBy?.full_name,
+        total_deals: r.deals?.length || 0,
+        open_rate: Number(r.openingRate || 0).toLocaleString(),
+        close_rate: Number(r.valuationRate || 0).toLocaleString(),
+        opening_bal: Number(r.totalOpeningValue || 0).toLocaleString(),
+        closing_bal: Number(r.totalClosingValue || 0).toLocaleString(),
+        profit_loss: Number(r.profitLoss || 0).toLocaleString(),
+        notes: notesStr,
+      });
+    } else {
+      sheet.addRow({
+        status: r.status,
+        date: formatDateDDMMYYYY(r.created_at),
+        opening_vault: openingStr,
+        closing_vault: closingStr,
+        created_by: r.createdBy?.full_name,
+        notes: notesStr,
+      });
+    }
   });
 
   const folder = path.join(os.homedir(), "Desktop");
@@ -1051,7 +1069,7 @@ const generatePDF = async (recs, options = {}) => {
     if (!fs.existsSync(folder)) fs.mkdirSync(folder);
   }
   const filePath = path.join(folder, `reconciliation_report_${Date.now()}.pdf`);
-  const doc = new PDFDocument({ margin: 30, size: "A4", layout: "portrait" });
+  const doc = new PDFDocument({ margin: 30, size: "A4", layout: "portrait", bufferPages: true });
 
   const writeStream = fs.createWriteStream(filePath);
   doc.pipe(writeStream);
@@ -1177,7 +1195,7 @@ const generatePDF = async (recs, options = {}) => {
     const lineCount = isPnlReport ? 1 : Math.max(openingEntriesList.length, closingEntriesList.length, 1);
     const rowHeight = isPnlReport ? 18 : Math.max(18, lineCount * 9 + 4);
 
-    if (currentY + rowHeight > 780) {
+    if (currentY + rowHeight > 740) {
       doc.addPage();
       currentY = 40;
       drawTableHeader(currentY);
@@ -1215,17 +1233,20 @@ const generatePDF = async (recs, options = {}) => {
     currentY += rowHeight;
   });
 
-  const drawFooter = (docInst) => {
+  const drawFooter = (docInst, pageNum, totalPages) => {
     const footerY = docInst.page.height - 80;
     docInst.moveTo(30, footerY).lineTo(docInst.page.width - 30, footerY).strokeColor(BORDER_COLOR).stroke();
     docInst.fillColor(TEXT_COLOR).fontSize(9).font("Helvetica-Bold").text("Notes & Remarks :", 30, footerY + 10);
     docInst.fillColor(SECONDARY_TEXT).fontSize(7).font("Helvetica");
     docInst.text("All reconciliation values are subject to manager audit.", 30, footerY + 22);
-    docInst.fontSize(7).text(`Page ${docInst.bufferedPageRange().count}`, docInst.page.width - 60, footerY + 55);
+    docInst.fontSize(7).text(`Page ${pageNum} of ${totalPages}`, docInst.page.width - 60, footerY + 55);
   };
 
   let pages = doc.bufferedPageRange();
-  for (let i = 0; i < pages.count; i++) { doc.switchToPage(i); drawFooter(doc); }
+  for (let i = 0; i < pages.count; i++) {
+    doc.switchToPage(i);
+    drawFooter(doc, i + 1, pages.count);
+  }
 
   doc.end();
   return new Promise((resolve) => { writeStream.on("finish", () => resolve(filePath)); });

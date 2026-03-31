@@ -51,137 +51,101 @@ const getOpenSetRates = async (date) => {
         const dateString = formatDate(date);
         const targetDate = new Date(dateString + "T00:00:00Z");
 
-        // ---------------- CURRENT DAY RATES ----------------
-        const rates = await getdb.openSetRate.findMany({
-            where: { date: targetDate },
-            include: { currency: true },
-        });
+        let previousRate = 0;
 
-        // ---------------- STEP 1: GET PREVIOUS MANUAL RATE ----------------
-        let previousRateRecord = await getdb.openSetRate.findFirst({
+        // ---------------- STEP 1: FIND LAST DEAL DATE ----------------
+        const lastDeal = await getdb.deal.findFirst({
             where: {
-                date: { lt: targetDate },
-                currency: { code: "TZS" }
+                OR: [
+                    { pre_date: { lt: targetDate } },
+                    { pre_date: null, created_at: { lt: targetDate } }
+                ],
+                deleted_at: null,
+                AND: [
+                    {
+                        OR: [
+                            { buyCurrency: { code: "USD" } },
+                            { sellCurrency: { code: "USD" } }
+                        ]
+                    }
+                ]
             },
-            orderBy: { date: "desc" }
+            orderBy: [
+                { pre_date: "desc" },
+                { created_at: "desc" }
+            ],
+            select: { pre_date: true, created_at: true }
         });
 
-        // fallback: any previous rate
-        if (!previousRateRecord) {
-            previousRateRecord = await getdb.openSetRate.findFirst({
-                where: { date: { lt: targetDate } },
-                orderBy: { date: "desc" }
-            });
+        if (!lastDeal) {
+            return { previousRate: 0 };
         }
 
-        let previousRate = previousRateRecord
-            ? Number(previousRateRecord.set_rate)
-            : 0;
+        const effectiveLastDate = lastDeal.pre_date || lastDeal.created_at;
 
-        // ---------------- STEP 2: IF NO MANUAL RATE → CALCULATE FROM DEALS ----------------
-        if (!previousRate) {
+        const start = new Date(effectiveLastDate);
+        start.setHours(0, 0, 0, 0);
 
-            // Find most recent deal before target date
-            const lastDeal = await getdb.deal.findFirst({
-                where: {
-                    OR: [
-                        { pre_date: { lt: targetDate } },
-                        { pre_date: null, created_at: { lt: targetDate } }
-                    ],
-                    deleted_at: null,
-                    AND: [
-                        {
-                            OR: [
-                                { buyCurrency: { code: "USD" } },
-                                { sellCurrency: { code: "USD" } }
-                            ]
-                        }
-                    ]
-                },
-                orderBy: { pre_date: "desc" },
-                select: { pre_date: true, created_at: true }
-            });
+        const end = new Date(effectiveLastDate);
+        end.setHours(23, 59, 59, 999);
 
-            if (lastDeal) {
-
-                const effectiveLastDate = lastDeal.pre_date || lastDeal.created_at;
-
-                const lastDateStart = new Date(effectiveLastDate);
-                lastDateStart.setHours(0, 0, 0, 0);
-
-                const lastDateEnd = new Date(effectiveLastDate);
-                lastDateEnd.setHours(23, 59, 59, 999);
-
-                // ---------------- FETCH DEALS OF THAT DAY ----------------
-                const recentDeals = await getdb.deal.findMany({
-                    where: {
+        // ---------------- STEP 2: FETCH DEALS ----------------
+        const deals = await getdb.deal.findMany({
+            where: {
+                OR: [
+                    { pre_date: { gte: start, lte: end } },
+                    { pre_date: null, created_at: { gte: start, lte: end } }
+                ],
+                deleted_at: null,
+                AND: [
+                    {
                         OR: [
-                            { pre_date: { gte: lastDateStart, lte: lastDateEnd } },
-                            { pre_date: null, created_at: { gte: lastDateStart, lte: lastDateEnd } }
-                        ],
-                        deleted_at: null,
-                        AND: [
-                            {
-                                OR: [
-                                    { buyCurrency: { code: "USD" } },
-                                    { sellCurrency: { code: "USD" } }
-                                ]
-                            }
+                            { buyCurrency: { code: "USD" } },
+                            { sellCurrency: { code: "USD" } }
                         ]
-                    },
-                    select: {
-                        amount: true,
-                        amount_to_be_paid: true,
-                        exchange_rate: true,
-                        deal_type: true,
-                        buyCurrency: { select: { code: true } },
-                        sellCurrency: { select: { code: true } },
                     }
-                });
+                ]
+            },
+            select: {
+                amount: true,
+                amount_to_be_paid: true,
+                exchange_rate: true,
+                deal_type: true
+            }
+        });
 
-                // ---------------- ✅ WEIGHTED AVERAGE CALCULATION ----------------
-                if (recentDeals.length > 0) {
+        // ---------------- STEP 3: WEIGHTED AVERAGE ----------------
+        let totalUsdAmount = 0;
+        let totalUsdValue = 0;
 
-                    let totalUsdAmount = 0;
-                    let totalUsdValue = 0;
+        deals.forEach(deal => {
+            if (deal.deal_type === "buy") {
 
-                    recentDeals.forEach(deal => {
+                const amount = Number(deal.amount || 0);
+                const value = Number(deal.amount_to_be_paid || 0);
+                const rate = Number(deal.exchange_rate || 0);
 
-                        // Only BUY deals for Open Rate
-                        if (deal.deal_type === "buy") {
+                const finalValue = value > 0
+                    ? value
+                    : (amount * rate);
 
-                            const amount = Number(deal.amount || 0);
-                            const amtPaid = Number(deal.amount_to_be_paid || 0);
-                            const rate = Number(deal.exchange_rate || 0);
-
-                            // Prefer actual paid value, fallback to rate
-                            const value = amtPaid > 0
-                                ? amtPaid
-                                : (amount * rate);
-
-                            if (amount > 0 && value > 0) {
-                                totalUsdAmount += amount;
-                                totalUsdValue += value;
-                            }
-                        }
-                    });
-
-                    if (totalUsdAmount > 0) {
-                        previousRate = Number(
-                            (totalUsdValue / totalUsdAmount).toFixed(2)
-                        );
-                    }
+                if (amount > 0 && finalValue > 0) {
+                    totalUsdAmount += amount;
+                    totalUsdValue += finalValue;
                 }
             }
+        });
+
+        if (totalUsdAmount > 0) {
+            previousRate = Number(
+                (totalUsdValue / totalUsdAmount).toFixed(2)
+            );
         }
 
-        return {
-            rates,
-            previousRate
-        };
+        return { previousRate };
 
     } catch (error) {
-        logger.error("Failed to fetch OpenSetRates:", error);
+        logger.error("Failed to calculate Open Rate:", error);
         throw error;
     }
 };

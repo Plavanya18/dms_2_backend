@@ -544,11 +544,11 @@ const generateDealsExcel = async (deals) => {
     const pair = isBuy ? `${buyCurr}/${sellCurr}` : `${sellCurr}/${buyCurr}`;
 
     const buy_amount = isBuy
-      ? `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`
-      : `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`;
+      ? `${Number(d.amount || 0).toLocaleString()}`
+      : `${Number(d.amount_to_be_paid || 0).toLocaleString()}`;
     const sell_amount = isBuy
-      ? `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`
-      : `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`;
+      ? `${Number(d.amount_to_be_paid || 0).toLocaleString()}`
+      : `${Number(d.amount || 0).toLocaleString()}`;
 
     sheet.addRow({
       id: d.id,
@@ -601,11 +601,11 @@ const generateDealsPDF = async (deals) => {
     const pair = isBuy ? `${buyCurr}/${sellCurr}` : `${sellCurr}/${buyCurr}`;
 
     const buy_amount = isBuy
-      ? `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`
-      : `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`;
+      ? `${Number(d.amount || 0).toLocaleString()}`
+      : `${Number(d.amount_to_be_paid || 0).toLocaleString()}`;
     const sell_amount = isBuy
-      ? `${Number(d.amount_to_be_paid || 0).toLocaleString()} ${sellCurr}`
-      : `${Number(d.amount || 0).toLocaleString()} ${buyCurr}`;
+      ? `${Number(d.amount_to_be_paid || 0).toLocaleString()}`
+      : `${Number(d.amount || 0).toLocaleString()}`;
 
     const createdAt =
       d.created_at instanceof Date

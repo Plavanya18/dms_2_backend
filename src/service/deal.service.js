@@ -551,7 +551,6 @@ const generateDealsExcel = async (deals) => {
   const sheet = workbook.addWorksheet("Deals");
 
   sheet.columns = [
-    { header: "ID", key: "id", width: 10 },
     { header: "Deal Number", key: "deal_number", width: 20 },
     { header: "Deal Type", key: "deal_type", width: 15 },
     { header: "Customer Name", key: "customer_name", width: 25 },
@@ -561,7 +560,6 @@ const generateDealsExcel = async (deals) => {
     { header: "Sell Amount", key: "sell_amount", width: 15 },
     { header: "Status", key: "status", width: 15 },
     { header: "Date", key: "created_at", width: 20 },
-    { header: "Created By", key: "created_by", width: 20 },
   ];
 
   deals.forEach((d) => {
@@ -578,7 +576,6 @@ const generateDealsExcel = async (deals) => {
       : `${Number(d.amount || 0).toLocaleString()}`;
 
     sheet.addRow({
-      id: d.id,
       deal_number: d.deal_number,
       deal_type: capitalizeWords(d.deal_type),
       customer_name: d.customer?.name || "",
@@ -588,7 +585,6 @@ const generateDealsExcel = async (deals) => {
       sell_amount,
       status: d.status,
       created_at: formatDateDDMMYYYY(d.pre_date || d.created_at),
-      created_by: capitalizeWords(d.createdBy?.full_name || ""),
     });
   });
 
@@ -670,15 +666,14 @@ const generateDealsPDF = async (deals, options = {}) => {
 
   const COLUMN_WIDTHS = {
     dealNo: 60,
-    type: 55,
-    customer: 70,
-    pair: 70,
+    type: 60,
+    customer: 85,
+    pair: 80,
     buyAmt: 60,
     rate: 30,
     sellAmt: 60,
-    status: 40,
-    date: 45,
-    creator: 45
+    status: 45,
+    date: 55
   };
 
   const drawTableHeader = (y) => {
@@ -702,8 +697,6 @@ const generateDealsPDF = async (deals, options = {}) => {
     doc.text("Status", currentX, y + 9);
     currentX += COLUMN_WIDTHS.status;
     doc.text("Date", currentX, y + 9);
-    currentX += COLUMN_WIDTHS.date;
-    doc.text("Created By", currentX, y + 9);
   };
 
   let currentY = 145;
@@ -749,8 +742,6 @@ const generateDealsPDF = async (deals, options = {}) => {
     doc.text(d.status, currentX, currentY);
     currentX += COLUMN_WIDTHS.status;
     doc.text(formatDateDDMMYYYY(d.pre_date || d.created_at), currentX, currentY);
-    currentX += COLUMN_WIDTHS.date;
-    doc.text(d.createdBy?.full_name?.split(" ")[0] || "N/A", currentX, currentY);
 
     currentY += 18;
   });

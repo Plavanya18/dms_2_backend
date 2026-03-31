@@ -987,7 +987,6 @@ const generateExcel = async (recs, options = {}) => {
   if (isPnlReport) {
     sheet.columns = [
       { header: "Date", key: "date", width: 15 },
-      { header: "Created By", key: "created_by", width: 20 },
       { header: "Total Deals", key: "total_deals", width: 15 },
       { header: "Open Rate", key: "open_rate", width: 15 },
       { header: "Close Rate", key: "close_rate", width: 15 },
@@ -1001,7 +1000,6 @@ const generateExcel = async (recs, options = {}) => {
       { header: "Date", key: "date", width: 15 },
       { header: "Opening Vault", key: "opening_vault", width: 40 },
       { header: "Closing Vault", key: "closing_vault", width: 40 },
-      { header: "Created By", key: "created_by", width: 20 },
     ];
   }
 
@@ -1027,7 +1025,6 @@ const generateExcel = async (recs, options = {}) => {
     if (isPnlReport) {
       sheet.addRow({
         date: formatDateDDMMYYYY(r.created_at),
-        created_by: r.createdBy?.full_name,
         total_deals: r.deals?.length || 0,
         open_rate: Number(r.openingRate || 0).toLocaleString(),
         close_rate: Number(r.valuationRate || 0).toLocaleString(),
@@ -1041,7 +1038,6 @@ const generateExcel = async (recs, options = {}) => {
         date: formatDateDDMMYYYY(r.created_at),
         opening_vault: openingStr,
         closing_vault: closingStr,
-        created_by: r.createdBy?.full_name,
       });
     }
   });
@@ -1129,19 +1125,17 @@ const generatePDF = async (recs, options = {}) => {
   // --- 🛒 COMPACT TABLE (DYNAMIC COLUMNS) ---
   const COLUMN_WIDTHS = isPnlReport ? {
     date: 60,
-    by: 60,
     deals: 35,
     openRate: 65,
     closeRate: 65,
-    openingVal: 90,
-    closingVal: 90,
-    pnl: 70
+    openingVal: 110,
+    closingVal: 110,
+    pnl: 90
   } : {
     status: 80,
     date: 85,
-    openingVault: 150,
-    closingVault: 150,
-    by: 70
+    openingVault: 185,
+    closingVault: 185
   };
 
   const drawTableHeader = (y) => {
@@ -1150,7 +1144,6 @@ const generatePDF = async (recs, options = {}) => {
     let currentX = 35;
     if (isPnlReport) {
       doc.text("Date", currentX, y + 9); currentX += COLUMN_WIDTHS.date;
-      doc.text("Created By", currentX, y + 9); currentX += COLUMN_WIDTHS.by;
       doc.text("Deals", currentX, y + 9); currentX += COLUMN_WIDTHS.deals;
       doc.text("Open Rate", currentX, y + 9); currentX += COLUMN_WIDTHS.openRate;
       doc.text("Close Rate", currentX, y + 9); currentX += COLUMN_WIDTHS.closeRate;
@@ -1161,8 +1154,7 @@ const generatePDF = async (recs, options = {}) => {
       doc.text("Status", currentX, y + 9); currentX += COLUMN_WIDTHS.status;
       doc.text("Date", currentX, y + 9); currentX += COLUMN_WIDTHS.date;
       doc.text("Opening Vault", currentX, y + 9); currentX += COLUMN_WIDTHS.openingVault;
-      doc.text("Closing Vault", currentX, y + 9); currentX += COLUMN_WIDTHS.closingVault;
-      doc.text("Created By", currentX, y + 9);
+      doc.text("Closing Vault", currentX, y + 9);
     }
   };
 
@@ -1208,8 +1200,6 @@ const generatePDF = async (recs, options = {}) => {
     let currentX = 35;
     if (isPnlReport) {
       doc.text(formatDateDDMMYYYY(r.created_at), currentX, currentY); currentX += COLUMN_WIDTHS.date;
-      const creatorName = (r.createdBy?.full_name || "N/A").split(" ")[0];
-      doc.text(creatorName, currentX, currentY); currentX += COLUMN_WIDTHS.by;
       doc.text((r.deals?.length || 0).toString(), currentX, currentY); currentX += COLUMN_WIDTHS.deals;
       doc.text(Number(r.openingRate || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.openRate;
       doc.text(Number(r.valuationRate || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.closeRate;
@@ -1222,9 +1212,7 @@ const generatePDF = async (recs, options = {}) => {
       doc.text(r.status, currentX, currentY); currentX += COLUMN_WIDTHS.status;
       doc.text(formatDateDDMMYYYY(r.created_at), currentX, currentY); currentX += COLUMN_WIDTHS.date;
       doc.text(openingVaultStr, currentX, currentY, { width: COLUMN_WIDTHS.openingVault - 5 }); currentX += COLUMN_WIDTHS.openingVault;
-      doc.text(closingVaultStr, currentX, currentY, { width: COLUMN_WIDTHS.closingVault - 5 }); currentX += COLUMN_WIDTHS.closingVault;
-      const creatorName = (r.createdBy?.full_name || "N/A").split(" ")[0];
-      doc.text(creatorName, currentX, currentY);
+      doc.text(closingVaultStr, currentX, currentY, { width: COLUMN_WIDTHS.closingVault - 5 });
     }
 
     currentY += rowHeight;

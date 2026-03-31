@@ -183,7 +183,6 @@ const generateExpensesExcel = async (expenses) => {
         { header: "Amount", key: "amount", width: 15 },
         { header: "Currency", key: "currency", width: 10 },
         { header: "Rate", key: "rate", width: 10 },
-        { header: "Created By", key: "created_by", width: 25 },
     ];
 
     expenses.forEach((exp) => {
@@ -195,7 +194,6 @@ const generateExpensesExcel = async (expenses) => {
             amount: exp.amount,
             currency: exp.currency?.code,
             rate: exp.rate,
-            created_by: exp.createdBy?.full_name,
         });
     });
 
@@ -275,10 +273,9 @@ const generateExpensesPDF = async (expenses, options = {}) => {
     const COLUMN_WIDTHS = {
         date: 65,
         category: 90,
-        description: 155,
+        description: 240,
         amount: 80,
-        rate: 60,
-        by: 85
+        rate: 60
     };
 
     const drawTableHeader = (y) => {
@@ -289,8 +286,7 @@ const generateExpensesPDF = async (expenses, options = {}) => {
         doc.text("Category", currentX, y + 9); currentX += COLUMN_WIDTHS.category;
         doc.text("Description", currentX, y + 9); currentX += COLUMN_WIDTHS.description;
         doc.text("Amount", currentX, y + 9); currentX += COLUMN_WIDTHS.amount;
-        doc.text("Rate", currentX, y + 9); currentX += COLUMN_WIDTHS.rate;
-        doc.text("Created By", currentX, y + 9);
+        doc.text("Rate", currentX, y + 9);
     };
 
     let currentY = 145;
@@ -316,8 +312,7 @@ const generateExpensesPDF = async (expenses, options = {}) => {
         doc.text(exp.category || "—", currentX, currentY); currentX += COLUMN_WIDTHS.category;
         doc.text(exp.description || "—", currentX, currentY, { width: COLUMN_WIDTHS.description - 10, ellipsis: true }); currentX += COLUMN_WIDTHS.description;
         doc.text(`${Number(exp.amount || 0).toLocaleString()} ${exp.currency?.code || ""}`, currentX, currentY); currentX += COLUMN_WIDTHS.amount;
-        doc.text(Number(exp.rate || 0).toLocaleString(), currentX, currentY); currentX += COLUMN_WIDTHS.rate;
-        doc.text(exp.createdBy?.full_name?.split(" ")[0] || "—", currentX, currentY);
+        doc.text(Number(exp.rate || 0).toLocaleString(), currentX, currentY);
 
         currentY += 18;
     });

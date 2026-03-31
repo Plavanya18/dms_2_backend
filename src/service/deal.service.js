@@ -632,7 +632,7 @@ const generateDealsPDF = async (deals, options = {}) => {
     doc.fillColor(TEXT_COLOR).fontSize(18).font("Helvetica-Bold").text("Usoft", 80, 40);
 
     const { user } = options;
-    const downloaderName = (user?.full_name || "").toUpperCase();
+    const downloaderName = (user?.full_name || "");
     const downloaderPhone = user?.phone_number || "";
     const downloaderEmail = user?.email || "";
 

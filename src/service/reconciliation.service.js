@@ -734,7 +734,11 @@ const getAllReconciliations = async ({
       });
 
       const openingRate = valuationRate || 0;
+      console.log("openingRate", openingRate);
+      console.log("openingUSD", openingUSD);
+      console.log("openingTZS", openingTZS);
       const totalOpeningValue = (openingUSD * openingRate) + openingTZS;
+      console.log("totalOpeningValue", totalOpeningValue);
 
       // ---------------- CLOSING ----------------
       let closingUSD = 0, closingTZS = 0;
@@ -747,6 +751,10 @@ const getAllReconciliations = async ({
       const closingRate = valuationRate || 0;
       const totalClosingValue = (closingUSD * closingRate) + closingTZS;
 
+      console.log("closingRate", closingRate);
+      console.log("closingUSD", closingUSD);
+      console.log("closingTZS", closingTZS);
+      console.log("totalClosingValue", totalClosingValue);
       // ---------------- PROFIT ----------------
       const totalBuyValue = totalTzsPaid;
       const totalSellValue = totalTzsReceived;

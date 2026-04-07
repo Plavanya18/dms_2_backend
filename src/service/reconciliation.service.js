@@ -600,33 +600,54 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
     let hasExpenses = (updatedReconciliation.expenses || []).length > 0;
     let finalClosingEntriesFound = (updatedReconciliation.closingEntries || []).length > 0;
 
+    // Use a small epsilon for float comparison
+    const EPSILON = 0.01;
+
+    // 1. Update ReconciliationClosing (Expected/Book Balances)
+    // We clear and update these to reflect the current "Target" based on opening + movement
     if (hasDeals || hasExpenses || finalClosingEntriesFound) {
       await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
 
       const updatedClosingEntriesArr = [];
       Object.keys(currencyTotals).forEach(cid => {
         const expectedAmount = currencyTotals[cid].expected;
-        if (Math.abs(expectedAmount) > 0.01) {
+        // Even if expected is 0, we might want to store it if there was movement
+        if (Math.abs(expectedAmount) > EPSILON) {
           updatedClosingEntriesArr.push({
             reconciliation_id: Number(id),
             currency_id: Number(cid),
-            amount: Math.round(expectedAmount),
+            amount: expectedAmount, // Keep as Decimal/Normal number, not rounded if possible
             quantity: 1,
-            denomination: Math.round(expectedAmount),
+            denomination: expectedAmount,
             exchange_rate: 1.0
           });
         }
       });
 
       if (updatedClosingEntriesArr.length > 0) {
-        logger.info(`Updating closing entries for recon ${id}: ${JSON.stringify(updatedClosingEntriesArr)}`);
+        logger.info(`Updating book balances for recon ${id}: ${JSON.stringify(updatedClosingEntriesArr)}`);
         await getdb.reconciliationClosing.createMany({ data: updatedClosingEntriesArr });
-        finalClosingEntriesFound = true;
       }
     }
 
-    // Because actual is potentially set to expected, it's Tallied if we have closing records
-    let finalStatus = finalClosingEntriesFound ? "Tallied" : "In_Progress";
+    // 2. Determine Final Status based on Physical Counts (actual) vs Book Balances (expected)
+    let finalStatus = "In_Progress";
+
+    if (finalClosingEntriesFound) {
+      finalStatus = "Tallied"; // Default to Tallied, then check for mismatches
+      
+      for (const cid of Object.keys(currencyTotals)) {
+        const { expected, actual } = currencyTotals[cid];
+        const diff = actual - expected;
+
+        if (Math.abs(diff) > EPSILON) {
+          // If we have a mismatch in ANY currency, the day is no longer Tallied
+          finalStatus = diff > 0 ? "Excess" : "Short";
+          logger.warn(`Variance found in reconciliation ${id} for currency ${cid}: Expected ${expected}, Actual ${actual}, Diff ${diff}`);
+          break; // A single mismatch determines the overall status (or at least that it's not Tallied)
+        }
+      }
+    }
 
     await getdb.reconciliation.update({
       where: { id: updatedReconciliation.id },

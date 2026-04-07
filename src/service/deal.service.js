@@ -469,12 +469,61 @@ const getAllDeals = async (
         new Date(d.pre_date || d.created_at) <= endYesterday
     );
 
+    // Calculate ALL Pending totals (beyond only today)
+    const pendingWhere = {
+      status: "Pending",
+      deleted_at: null,
+      ...(userOnly && userId ? { created_by: Number(userId) } : {})
+    };
+
+    const allPendingDeals = await getdb.deal.findMany({
+      where: pendingWhere,
+      include: {
+        buyCurrency: { select: { code: true } },
+        sellCurrency: { select: { code: true } },
+      }
+    });
+
+    const outstandingBalances = {
+      payable: { BNPL: {}, PNBL: {} },    // What we owe
+      receivable: { BNPL: {}, PNBL: {} }  // What we are owed
+    };
+
+    allPendingDeals.forEach(deal => {
+      const amount = Number(deal.amount || 0);
+      const amountToBePaid = Number(deal.amount_to_be_paid || 0);
+      const creditType = (deal.credit_type === "BNPL" || deal.credit_type === "PNBL") ? deal.credit_type : "BNPL";
+
+      if (creditType === "BNPL") {
+        if (deal.deal_type === "buy") {
+          // BNPL Buy: We owe payment to customer
+          const code = deal.sellCurrency?.code;
+          if (code) outstandingBalances.payable.BNPL[code] = (outstandingBalances.payable.BNPL[code] || 0) + amountToBePaid;
+        } else if (deal.deal_type === "sell") {
+          // BNPL Sell: Customer owes payment to us
+          const code = deal.buyCurrency?.code;
+          if (code) outstandingBalances.receivable.BNPL[code] = (outstandingBalances.receivable.BNPL[code] || 0) + amountToBePaid;
+        }
+      } else if (creditType === "PNBL") {
+        if (deal.deal_type === "buy") {
+          // PNBL Buy: Customer owes us the asset (we already paid)
+          const code = deal.buyCurrency?.code;
+          if (code) outstandingBalances.receivable.PNBL[code] = (outstandingBalances.receivable.PNBL[code] || 0) + amount;
+        } else if (deal.deal_type === "sell") {
+          // PNBL Sell: We owe the asset to customer (they already paid)
+          const code = deal.sellCurrency?.code;
+          if (code) outstandingBalances.payable.PNBL[code] = (outstandingBalances.payable.PNBL[code] || 0) + amount;
+        }
+      }
+    });
+
     const stats = {
       today: {
         ...calculateTotals(todayDeals),
         openingBalances,
       },
       yesterday: calculateTotals(yesterdayDeals),
+      outstandingBalances
     };
 
     if (format === "pdf") {

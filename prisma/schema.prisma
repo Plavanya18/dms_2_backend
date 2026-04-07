@@ -217,6 +217,7 @@ model Reconciliation {
   deals          ReconciliationDeal[]
   notes          ReconciliationNote[]
   openingEntries ReconciliationOpening[]
+  expenses       ReconciliationExpense[]
 
   @@index([created_by], map: "reconciliation_created_by_fkey")
   @@map("reconciliation")
@@ -269,12 +270,25 @@ model ReconciliationDeal {
   id                Int            @id @default(autoincrement())
   reconciliation_id Int
   deal_id           Int
-  deal              Deal           @relation(fields: [deal_id], references: [id])
-  reconciliation    Reconciliation @relation(fields: [reconciliation_id], references: [id])
+  deal              Deal           @relation(fields: [deal_id], references: [id], onDelete: Cascade)
+  reconciliation    Reconciliation @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade)
 
   @@index([deal_id], map: "reconciliationdeal_deal_id_fkey")
   @@index([reconciliation_id], map: "reconciliationdeal_reconciliation_id_fkey")
   @@map("reconciliationdeal")
+}
+
+model ReconciliationExpense {
+  id                Int            @id @default(autoincrement())
+  reconciliation_id Int
+  expense_id        Int
+  expense           Expense        @relation(fields: [expense_id], references: [id], onDelete: Cascade)
+  reconciliation    Reconciliation @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade)
+
+  @@unique([reconciliation_id, expense_id])
+  @@index([expense_id], map: "reconciliationexpense_expense_id_fkey")
+  @@index([reconciliation_id], map: "reconciliationexpense_reconciliation_id_fkey")
+  @@map("reconciliationexpense")
 }
 
 model Expense {
@@ -290,6 +304,7 @@ model Expense {
   currency_id Int      @default(1)
   createdBy   User     @relation(fields: [created_by], references: [id])
   currency    Currency @relation(fields: [currency_id], references: [id])
+  reconciliations ReconciliationExpense[]
 
   @@index([created_by], map: "expense_created_by_fkey")
   @@index([currency_id], map: "expense_currency_id_fkey")

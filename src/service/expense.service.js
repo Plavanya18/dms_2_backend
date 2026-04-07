@@ -5,6 +5,7 @@ const fs = require("fs");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 const os = require("os");
+const { mapDailyExpenses, calculateAndSetReconciliationStatus } = require("./reconciliation.service");
 
 const formatDateDDMMYYYY = (date) => {
     if (!date) return "";
@@ -22,17 +23,45 @@ const capitalizeWords = (str) => {
  */
 const createExpense = async (data, userId) => {
     try {
+        const numericUserId = Number(userId);
+        if (isNaN(numericUserId)) {
+            logger.error(`Invalid userId provided to createExpense: ${userId}`);
+            throw new Error("Invalid User ID");
+        }
+
+        logger.info(`Creating expense for user: ${numericUserId}`);
         const expense = await getdb.expense.create({
             data: {
                 category: data.category,
                 description: data.description,
                 amount: data.amount,
                 rate: data.rate,
-                currency_id: data.currency_id ? Number(data.currency_id) : 1,
+                currency: {
+                    connect: { id: data.currency_id ? Number(data.currency_id) : 1 }
+                },
                 date: data.date ? new Date(data.date) : new Date(),
-                created_by: userId,
+                createdBy: {
+                    connect: { id: numericUserId }
+                }
             },
         });
+
+        // Trigger mapping if a reconciliation exists for this date
+        const recon = await getdb.reconciliation.findFirst({
+            where: {
+                created_at: {
+                    gte: new Date(new Date(expense.date).setUTCHours(0, 0, 0, 0)),
+                    lte: new Date(new Date(expense.date).setUTCHours(23, 59, 59, 999)),
+                }
+            }
+        });
+
+        if (recon) {
+            logger.info(`Found reconciliation ${recon.id} for auto-mapping.`);
+            await mapDailyExpenses(recon.id, userId);
+            await calculateAndSetReconciliationStatus(recon.id, userId);
+        }
+
         return expense;
     } catch (error) {
         logger.error("Error creating expense:", error);
@@ -139,17 +168,39 @@ const updateExpense = async (id, data, userId) => {
             description: data.description,
             amount: data.amount,
             rate: data.rate,
-            currency_id: data.currency_id ? Number(data.currency_id) : undefined,
             date: data.date ? new Date(data.date) : undefined,
         };
+
+        if (data.currency_id) {
+            updateData.currency = {
+                connect: { id: Number(data.currency_id) }
+            };
+        }
 
         // Remove undefined fields
         Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
 
-        return await getdb.expense.update({
+        const updatedExpense = await getdb.expense.update({
             where: { id: Number(id) },
             data: updateData,
         });
+
+        // Trigger re-mapping
+        const recon = await getdb.reconciliation.findFirst({
+            where: {
+                created_at: {
+                    gte: new Date(new Date(updatedExpense.date).setUTCHours(0, 0, 0, 0)),
+                    lte: new Date(new Date(updatedExpense.date).setUTCHours(23, 59, 59, 999)),
+                }
+            }
+        });
+
+        if (recon) {
+            await mapDailyExpenses(recon.id, userId);
+            await calculateAndSetReconciliationStatus(recon.id, userId);
+        }
+
+        return updatedExpense;
     } catch (error) {
         logger.error("Error updating expense:", error);
         throw error;
@@ -161,10 +212,30 @@ const updateExpense = async (id, data, userId) => {
  */
 const deleteExpense = async (id, userId) => {
     try {
-        // Basic check could be added here to see if the user has permission
-        return await getdb.expense.delete({
+        // Find reconciliation before deleting to trigger status update after
+        const expense = await getdb.expense.findUnique({ where: { id: Number(id) } });
+
+        const result = await getdb.expense.delete({
             where: { id: Number(id) },
         });
+
+        if (expense) {
+            const recon = await getdb.reconciliation.findFirst({
+                where: {
+                    created_at: {
+                        gte: new Date(new Date(expense.date).setUTCHours(0, 0, 0, 0)),
+                        lte: new Date(new Date(expense.date).setUTCHours(23, 59, 59, 999)),
+                    }
+                }
+            });
+
+            if (recon) {
+                // Since it's a hard delete, junction table records are already cascaded
+                await calculateAndSetReconciliationStatus(recon.id, userId);
+            }
+        }
+
+        return result;
     } catch (error) {
         logger.error("Error deleting expense:", error);
         throw error;

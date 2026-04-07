@@ -43,6 +43,7 @@ const getCurrentDayReconciliation = async (userId) => {
         closingEntries: { include: { currency: true } },
         notes: true,
         deals: { include: { deal: true } },
+        expenses: { include: { expense: { include: { currency: true } } } },
       },
     });
 
@@ -106,6 +107,7 @@ const getCurrentDayReconciliation = async (userId) => {
 
       // Sync any deals that might fall into this gap (back-dated deals)
       await mapDailyDeals(gapRecon.id, userId);
+      await mapDailyExpenses(gapRecon.id, userId);
       // Recalculate status (marks Tallied, propagates rates to next day)
       await calculateAndSetReconciliationStatus(gapRecon.id, userId);
 
@@ -147,6 +149,7 @@ const getCurrentDayReconciliation = async (userId) => {
 
     // Immediately sync today's deals into the new reconciliation
     await mapDailyDeals(newRecon.id, userId);
+    await mapDailyExpenses(newRecon.id, userId);
     await calculateAndSetReconciliationStatus(newRecon.id, userId);
 
     return await getdb.reconciliation.findUnique({
@@ -164,6 +167,9 @@ const getCurrentDayReconciliation = async (userId) => {
   }
 };
 
+/**
+ * Automatically maps deals created on the same day as the reconciliation
+ */
 const mapDailyDeals = async (reconciliationId, userId) => {
   try {
     const reconciliation = await getdb.reconciliation.findUnique({
@@ -172,18 +178,38 @@ const mapDailyDeals = async (reconciliationId, userId) => {
 
     if (!reconciliation) throw new Error("Reconciliation not found");
 
-    const startOfDay = new Date(reconciliation.created_at);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(reconciliation.created_at);
-    endOfDay.setHours(23, 59, 59, 999);
+    const dateStr = reconciliation.created_at.toISOString().split("T")[0];
+    const startOfDay = new Date(`${dateStr}T00:00:00.000Z`);
+    const endOfDay = new Date(`${dateStr}T23:59:59.999Z`);
+
+    logger.info(`[Mapping] Mapping deals for date: ${dateStr} (Recon: ${reconciliation.id})`);
 
     const deals = await getdb.deal.findMany({
       where: {
         OR: [
-          { pre_date: { gte: startOfDay, lte: endOfDay } },
-          { pre_date: null, created_at: { gte: startOfDay, lte: endOfDay } }
+          {
+            receivedItems: {
+              some: {
+                created_at: { gte: startOfDay, lte: endOfDay },
+              },
+            },
+          },
+          {
+            paidItems: {
+              some: {
+                created_at: { gte: startOfDay, lte: endOfDay },
+              },
+            },
+          },
+          {
+            pre_date: { gte: startOfDay, lte: endOfDay }
+          }
         ],
-        reconciliations: { none: {} },
+        reconciliations: {
+          none: {
+            reconciliation_id: reconciliation.id
+          },
+        },
         deleted_at: null,
       },
     });
@@ -200,6 +226,50 @@ const mapDailyDeals = async (reconciliationId, userId) => {
     return deals.length;
   } catch (error) {
     logger.error("Failed to map daily deals:", error);
+    throw error;
+  }
+};
+
+/**
+ * Automatically maps expenses created on the same day as the reconciliation
+ */
+const mapDailyExpenses = async (reconciliationId, userId) => {
+  try {
+    const reconciliation = await getdb.reconciliation.findUnique({
+      where: { id: Number(reconciliationId) },
+    });
+
+    if (!reconciliation) throw new Error("Reconciliation not found");
+
+    const dateStr = reconciliation.created_at.toISOString().split("T")[0];
+    const startOfDay = new Date(`${dateStr}T00:00:00.000Z`);
+    const endOfDay = new Date(`${dateStr}T23:59:59.999Z`);
+
+    logger.info(`[Mapping] Mapping expenses for date: ${dateStr} (Recon: ${reconciliationId})`);
+
+    const expenses = await getdb.expense.findMany({
+      where: {
+        date: { gte: startOfDay, lte: endOfDay },
+        reconciliations: {
+          none: {
+            reconciliation_id: reconciliation.id
+          },
+        },
+      },
+    });
+
+    if (expenses.length > 0) {
+      await getdb.reconciliationExpense.createMany({
+        data: expenses.map((exp) => ({
+          reconciliation_id: reconciliation.id,
+          expense_id: exp.id,
+        })),
+      });
+    }
+
+    return expenses.length;
+  } catch (error) {
+    logger.error("Failed to map daily expenses:", error);
     throw error;
   }
 };
@@ -268,6 +338,7 @@ const createReconciliation = async (data, userId) => {
         closingEntries: { include: { currency: true } },
         notes: true,
         deals: { include: { deal: true } },
+        expenses: { include: { expense: { include: { currency: true } } } },
       },
     });
 
@@ -275,6 +346,7 @@ const createReconciliation = async (data, userId) => {
 
     // Automatically map any existing deals for this date
     await mapDailyDeals(newReconciliation.id, userId);
+    await mapDailyExpenses(newReconciliation.id, userId);
 
     return newReconciliation;
 
@@ -350,6 +422,8 @@ const startReconciliation = async (id, userId) => {
       });
     }
 
+    await mapDailyExpenses(reconciliation.id, userId);
+
     return await calculateAndSetReconciliationStatus(reconciliation.id, userId);
   } catch (error) {
     logger.error("Failed to start reconciliation:", error);
@@ -359,6 +433,11 @@ const startReconciliation = async (id, userId) => {
 
 const calculateAndSetReconciliationStatus = async (id, userId) => {
   try {
+    // ---------------- RE-MAP DAILY ACTIVITY ----------------
+    // This ensures any deals or expenses added AFTER starting the reconciliation are included.
+    await mapDailyDeals(id, userId);
+    await mapDailyExpenses(id, userId);
+
     const updatedReconciliation = await getdb.reconciliation.findUnique({
       where: { id: Number(id) },
       include: {
@@ -369,6 +448,13 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
           include: {
             deal: {
               include: { receivedItems: true, paidItems: true }
+            }
+          }
+        },
+        expenses: {
+          include: {
+            expense: {
+              include: { currency: true }
             }
           }
         },
@@ -394,6 +480,14 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
     });
 
     const reconDate = formatDate(updatedReconciliation.created_at);
+
+    // Adjust expected vault balance for daily expenses (outflow)
+    updatedReconciliation.expenses.forEach(re => {
+      const exp = re.expense;
+      const cid = exp.currency_id;
+      if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
+      currencyTotals[cid].expected -= Number(exp.amount || 0);
+    });
 
     updatedReconciliation.deals.forEach(rd => {
       const deal = rd.deal;
@@ -500,12 +594,13 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
       }
     });
 
-    // Automatically update closing entries to match expected book balance ONLY if deals exist
+    // Automatically update closing entries to match expected book balance ONLY if deals or expenses exist
     // This allows start-of-day (login time) to stay with empty closing vault until business activity starts.
     let hasDeals = (updatedReconciliation.deals || []).length > 0;
+    let hasExpenses = (updatedReconciliation.expenses || []).length > 0;
     let finalClosingEntriesFound = (updatedReconciliation.closingEntries || []).length > 0;
 
-    if (hasDeals || finalClosingEntriesFound) {
+    if (hasDeals || hasExpenses || finalClosingEntriesFound) {
       await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
 
       const updatedClosingEntriesArr = [];
@@ -554,6 +649,7 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
         closingEntries: { include: { currency: true } },
         notes: true,
         deals: { include: { deal: true } },
+        expenses: { include: { expense: { include: { currency: true } } } },
       },
     });
   } catch (error) {
@@ -662,6 +758,13 @@ const getAllReconciliations = async ({
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         createdBy: { select: { id: true, full_name: true, email: true } },
+        expenses: {
+          include: {
+            expense: {
+              include: { currency: true }
+            }
+          }
+        },
         deals: {
           include: {
             deal: {
@@ -672,6 +775,13 @@ const getAllReconciliations = async ({
                 receivedItems: true,
                 paidItems: true
               }
+            }
+          }
+        },
+        expenses: {
+          include: {
+            expense: {
+              include: { currency: true }
             }
           }
         }
@@ -746,6 +856,8 @@ const getAllReconciliations = async ({
         if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
       });
 
+
+
       const openingRate = previousRate || valuationRate || 0;
       const totalOpeningValue = (openingUSD * openingRate) + openingTZS;
 
@@ -762,7 +874,23 @@ const getAllReconciliations = async ({
       const totalClosingValue = (closingUSD * closingRate) + closingTZS;
 
       // ---------------- PROFIT ----------------
-      const profitLoss = (totalClosingValue - totalOpeningValue);
+      let totalExpensesTZS = 0;
+      (rec.expenses || []).forEach(re => {
+        const exp = re.expense;
+        if (exp.currency?.code === "TZS") {
+          totalExpensesTZS += Number(exp.amount || 0);
+        } else if (exp.currency?.code === "USD") {
+          totalExpensesTZS += Number(exp.amount || 0) * (valuationRate || openingRate || 0);
+        }
+      });
+
+      // Profit = (Closing + Outflow) - (Opening + Inflow)
+      // For now, outflow includes: totalTzsPaid + (totalForeignSold * closingRate) + totalExpensesTZS
+      // And inflow includes: totalTzsReceived + (totalForeignBought * closingRate)
+      const totalOutflow = totalTzsPaid + (totalForeignSold * closingRate) + totalExpensesTZS;
+      const totalInflow = totalTzsReceived + (totalForeignBought * closingRate);
+
+      const profitLoss = (totalClosingValue + totalOutflow) - (totalOpeningValue + totalInflow);
 
       return {
         ...rec,
@@ -1235,6 +1363,10 @@ const generatePDF = async (recs, options = {}) => {
 
 const getReconciliationById = async (id, userId = null, roleName = "") => {
   try {
+    // Automatically trigger mapping to catch any missing deals or expenses
+    await mapDailyDeals(id, userId);
+    await mapDailyExpenses(id, userId);
+
     const rec = await getdb.reconciliation.findUnique({
       where: { id: Number(id) },
       include: {
@@ -1255,6 +1387,13 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
                 receivedItems: true,
                 paidItems: true
               }
+            }
+          }
+        },
+        expenses: {
+          include: {
+            expense: {
+              include: { currency: true }
             }
           }
         },
@@ -1431,7 +1570,18 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     const totalOpeningValue = openingUSD * openingRate + openingTZS;
     const totalClosingValue = closingUSD * valuationRate + closingTZS;
 
-    const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate);
+    // --- EXPENSES ADJUSTMENT ---
+    let totalExpensesTZS = 0;
+    (rec.expenses || []).forEach(re => {
+      const exp = re.expense;
+      if (exp.currency?.code === "TZS") {
+        totalExpensesTZS += Number(exp.amount || 0);
+      } else if (exp.currency?.code === "USD") {
+        totalExpensesTZS += Number(exp.amount || 0) * valuationRate;
+      }
+    });
+
+    const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate) + totalExpensesTZS;
     const totalValueIn = totalTzsReceived + (totalForeignBought * valuationRate);
 
     const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
@@ -1521,13 +1671,27 @@ const updateReconciliation = async (id, data, userId) => {
         openingEntries: { include: { currency: true } },
         closingEntries: { include: { currency: true } },
         notes: true,
-        deals: { include: { deal: true } },
+        deals: {
+          include: {
+            deal: {
+              include: { receivedItems: true, paidItems: true }
+            }
+          }
+        },
+        expenses: {
+          include: {
+            expense: {
+              include: { currency: true }
+            }
+          }
+        },
       },
     });
 
-    if (hasClosing) {
+    if (hasClosing || reconciliation.status === "In_Progress") {
       await mapDailyDeals(id, userId);
-      return await startReconciliation(id, userId);
+      await mapDailyExpenses(id, userId);
+      return await calculateAndSetReconciliationStatus(id, userId);
     }
 
     return updatedReconciliation;
@@ -1614,4 +1778,5 @@ module.exports = {
   getCurrentDayReconciliation,
   calculateAndSetReconciliationStatus,
   syncReconciliationCascade,
+  mapDailyExpenses,
 };

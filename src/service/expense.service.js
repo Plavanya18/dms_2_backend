@@ -35,7 +35,7 @@ const createExpense = async (data, userId) => {
                 category: data.category,
                 description: data.description,
                 amount: data.amount,
-                rate: data.rate,
+                rate: data.rate || 1,
                 currency: {
                     connect: { id: data.currency_id ? Number(data.currency_id) : 1 }
                 },

@@ -467,6 +467,8 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
 
     const currencyTotals = {};
 
+    const hasClosing = updatedReconciliation.closingEntries.length > 0;
+
     updatedReconciliation.openingEntries.forEach(entry => {
       const cid = entry.currency_id;
       if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
@@ -484,9 +486,16 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
     // Adjust expected vault balance for daily expenses (outflow)
     updatedReconciliation.expenses.forEach(re => {
       const exp = re.expense;
+      if (!exp) return;
       const cid = exp.currency_id;
       if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
-      currencyTotals[cid].expected -= Number(exp.amount || 0);
+      const amount = Number(exp.amount || 0);
+      currencyTotals[cid].expected -= amount;
+      
+      // If vault already captured, subtract expense from physical actuals as well
+      if (hasClosing) {
+        currencyTotals[cid].actual -= amount;
+      }
     });
 
     updatedReconciliation.deals.forEach(rd => {
@@ -537,10 +546,12 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
         if (buyCid) {
           if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
           currencyTotals[buyCid].expected += vaultAdd;
+          if (hasClosing) currencyTotals[buyCid].actual += vaultAdd;
         }
         if (sellCid) {
           if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
           currencyTotals[sellCid].expected -= vaultReduce;
+          if (hasClosing) currencyTotals[sellCid].actual -= vaultReduce;
         }
       } else {
         const buyCid = deal.buy_currency_id;
@@ -553,7 +564,9 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
           matchingReceivedItems.forEach(item => {
             const cid = item.currency_id;
             if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
-            currencyTotals[cid].expected += Number(item.total || 0);
+            const itemAmt = Number(item.total || 0);
+            currencyTotals[cid].expected += itemAmt;
+            if (hasClosing) currencyTotals[cid].actual += itemAmt;
           });
         } else if (isSameDayDeal) {
           // No received items — use the full deal amount for the received side
@@ -561,11 +574,13 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
             if (buyCid) {
               if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
               currencyTotals[buyCid].expected += amount;
+              if (hasClosing) currencyTotals[buyCid].actual += amount;
             }
           } else if (deal.deal_type === "sell") {
             if (buyCid) {
               if (!currencyTotals[buyCid]) currencyTotals[buyCid] = { expected: 0, actual: 0 };
               currencyTotals[buyCid].expected += amountToBePaid;
+              if (hasClosing) currencyTotals[buyCid].actual += amountToBePaid;
             }
           }
         }
@@ -575,7 +590,9 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
           matchingPaidItems.forEach(item => {
             const cid = item.currency_id;
             if (!currencyTotals[cid]) currencyTotals[cid] = { expected: 0, actual: 0 };
-            currencyTotals[cid].expected -= Number(item.total || 0);
+            const itemAmt = Number(item.total || 0);
+            currencyTotals[cid].expected -= itemAmt;
+            if (hasClosing) currencyTotals[cid].actual -= itemAmt;
           });
         } else if (isSameDayDeal) {
           // No paid items — use the full deal amount for the paid side
@@ -583,11 +600,13 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
             if (sellCid) {
               if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
               currencyTotals[sellCid].expected -= amountToBePaid;
+              if (hasClosing) currencyTotals[sellCid].actual -= amountToBePaid;
             }
           } else if (deal.deal_type === "sell") {
             if (sellCid) {
               if (!currencyTotals[sellCid]) currencyTotals[sellCid] = { expected: 0, actual: 0 };
               currencyTotals[sellCid].expected -= amount;
+              if (hasClosing) currencyTotals[sellCid].actual -= amount;
             }
           }
         }
@@ -603,35 +622,41 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
     // Use a small epsilon for float comparison
     const EPSILON = 0.01;
 
-    // 1. Update ReconciliationClosing (Expected/Book Balances)
-    // We clear and update these to reflect the current "Target" based on opening + movement
+    // 1. Update ReconciliationClosing (Vault Records)
+    // We adjust the stored CLOSING amounts by the current movement to preserve variance while reflecting flow (expenses/deals).
+    // If In_Progress, this effectively sets the vault to the book balance.
+    // If tallied/short/excess, this keeps the discrepancy constant while shifting the balance.
     if (hasDeals || hasExpenses || finalClosingEntriesFound) {
       await getdb.reconciliationClosing.deleteMany({ where: { reconciliation_id: Number(id) } });
 
       const updatedClosingEntriesArr = [];
       Object.keys(currencyTotals).forEach(cid => {
-        const expectedAmount = currencyTotals[cid].expected;
-        // Even if expected is 0, we might want to store it if there was movement
-        if (Math.abs(expectedAmount) > EPSILON) {
+        const { expected, actual } = currencyTotals[cid];
+        const variance = finalClosingEntriesFound ? (actual - expected) : 0;
+        
+        // Target Storage = Current Expected + Any pre-existing manual variance
+        const targetAmount = expected + variance;
+
+        if (Math.abs(targetAmount) > EPSILON) {
           updatedClosingEntriesArr.push({
             reconciliation_id: Number(id),
             currency_id: Number(cid),
-            amount: expectedAmount, // Keep as Decimal/Normal number, not rounded if possible
+            amount: targetAmount,
             quantity: 1,
-            denomination: expectedAmount,
+            denomination: targetAmount,
             exchange_rate: 1.0
           });
         }
       });
 
       if (updatedClosingEntriesArr.length > 0) {
-        logger.info(`Updating book balances for recon ${id}: ${JSON.stringify(updatedClosingEntriesArr)}`);
+        logger.info(`Updating closing records for recon ${id} to reflect movement while preserving variance.`);
         await getdb.reconciliationClosing.createMany({ data: updatedClosingEntriesArr });
       }
     }
 
     // 2. Determine Final Status based on Physical Counts (actual) vs Book Balances (expected)
-    let finalStatus = "In_Progress";
+    let finalStatus = updatedReconciliation.status;
 
     if (finalClosingEntriesFound) {
       finalStatus = "Tallied"; // Default to Tallied, then check for mismatches
@@ -641,12 +666,13 @@ const calculateAndSetReconciliationStatus = async (id, userId) => {
         const diff = actual - expected;
 
         if (Math.abs(diff) > EPSILON) {
-          // If we have a mismatch in ANY currency, the day is no longer Tallied
           finalStatus = diff > 0 ? "Excess" : "Short";
           logger.warn(`Variance found in reconciliation ${id} for currency ${cid}: Expected ${expected}, Actual ${actual}, Diff ${diff}`);
-          break; // A single mismatch determines the overall status (or at least that it's not Tallied)
+          break; 
         }
       }
+    } else {
+      finalStatus = "In_Progress";
     }
 
     await getdb.reconciliation.update({
@@ -870,29 +896,34 @@ const getAllReconciliations = async ({
       // ---------------- OPENING ----------------
       const { previousRate } = await openSetRateService.getOpenSetRates(rec.created_at);
 
-      let openingUSD = 0, openingTZS = 0;
-
+      let totalOpeningValue = 0;
       rec.openingEntries.forEach(o => {
-        if (o.currency.code === "USD") openingUSD += Number(o.amount || 0);
-        if (o.currency.code === "TZS") openingTZS += Number(o.amount || 0);
+        const amt = Number(o.amount || 0);
+        if (o.currency.code === "USD") {
+          totalOpeningValue += amt * (previousRate || valuationRate || 0);
+        } else if (o.currency.code === "TZS") {
+          totalOpeningValue += amt;
+        } else {
+          totalOpeningValue += amt * (valuationRate || 1);
+        }
       });
-
-
-
-      const openingRate = previousRate || valuationRate || 0;
-      const totalOpeningValue = (openingUSD * openingRate) + openingTZS;
 
       // ---------------- CLOSING ----------------
-      let closingUSD = 0, closingTZS = 0;
+      // Closing Rate defaults to today's valuationRate, but if no deals today, use openingRate
+      const openingRate = previousRate || valuationRate || 0;
+      const closingRate = valuationRate || openingRate || 0;
+      let totalClosingValue = 0;
 
       rec.closingEntries.forEach(c => {
-        if (c.currency.code === "USD") closingUSD += Number(c.amount || 0);
-        if (c.currency.code === "TZS") closingTZS += Number(c.amount || 0);
+        const amt = Number(c.amount || 0);
+        if (c.currency.code === "USD") {
+          totalClosingValue += amt * closingRate;
+        } else if (c.currency.code === "TZS") {
+          totalClosingValue += amt;
+        } else {
+          totalClosingValue += amt * (valuationRate || 1);
+        }
       });
-
-      // Closing Rate defaults to today's valuationRate, but if no deals today, use openingRate
-      const closingRate = valuationRate || openingRate || 0;
-      const totalClosingValue = (closingUSD * closingRate) + closingTZS;
 
       // ---------------- PROFIT ----------------
       let totalExpensesTZS = 0;
@@ -902,6 +933,9 @@ const getAllReconciliations = async ({
           totalExpensesTZS += Number(exp.amount || 0);
         } else if (exp.currency?.code === "USD") {
           totalExpensesTZS += Number(exp.amount || 0) * (valuationRate || openingRate || 0);
+        } else {
+          // Handle other currencies by converting to TZS using valuationRate
+          totalExpensesTZS += Number(exp.amount || 0) * (valuationRate || 1);
         }
       });
 
@@ -911,7 +945,13 @@ const getAllReconciliations = async ({
       const totalOutflow = totalTzsPaid + (totalForeignSold * closingRate) + totalExpensesTZS;
       const totalInflow = totalTzsReceived + (totalForeignBought * closingRate);
 
-      const profitLoss = (totalClosingValue + totalOutflow) - (totalOpeningValue + totalInflow);
+      // If In_Progress, use the expected book balance as the totalClosingValue for UI display
+      let displayClosingValue = totalClosingValue;
+      if (rec.status === "In_Progress") {
+        displayClosingValue = (totalOpeningValue + totalInflow) - totalOutflow;
+      }
+
+      const profitLoss = (displayClosingValue + totalOutflow) - (totalOpeningValue + totalInflow);
 
       return {
         ...rec,
@@ -923,7 +963,7 @@ const getAllReconciliations = async ({
         valuationRate: Math.round(valuationRate),
         openingRate: Math.round(openingRate), // Explicitly return opening rate
         totalOpeningValue: Math.round(totalOpeningValue),
-        totalClosingValue: Math.round(totalClosingValue),
+        totalClosingValue: Math.round(displayClosingValue),
         profitLoss: Math.round(profitLoss)
       };
     }));
@@ -1605,11 +1645,17 @@ const getReconciliationById = async (id, userId = null, roleName = "") => {
     const totalValueOut = totalTzsPaid + (totalForeignSold * valuationRate) + totalExpensesTZS;
     const totalValueIn = totalTzsReceived + (totalForeignBought * valuationRate);
 
-    const profitLoss = (totalClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
+    // If In_Progress, use the expected book balance as the totalClosingValue for UI display
+    let displayClosingValue = totalClosingValue;
+    if (rec.status === "In_Progress") {
+      displayClosingValue = (totalOpeningValue + totalValueIn) - totalValueOut;
+    }
+
+    const profitLoss = (displayClosingValue + totalValueOut) - (totalOpeningValue + totalValueIn);
 
     // Fields used in list view
     const opening_total = totalOpeningValue;
-    const closing_total = totalClosingValue;
+    const closing_total = displayClosingValue;
     const total_transactions = rec.deals.length;
 
     return {

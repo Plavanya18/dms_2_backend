@@ -155,7 +155,8 @@ const getAllDeals = async (
   dealType = "",
   userId = null,
   roleName = "",
-  userOnly = false
+  userOnly = false,
+  category = ""
 ) => {
   try {
     const skip = (page - 1) * limit;
@@ -255,6 +256,26 @@ const getAllDeals = async (
         if (where.AND) where.AND.push(dateCondition);
         else where.AND = [dateCondition];
       }
+    }
+
+    // Category Filter (Receivable/Payable logic)
+    if (category) {
+      const categoryFilter = category === "receivable"
+        ? {
+          OR: [
+            { deal_type: "sell", credit_type: "BNPL" },
+            { deal_type: "buy", credit_type: "PNBL" }
+          ]
+        }
+        : {
+          OR: [
+            { deal_type: "buy", credit_type: "BNPL" },
+            { deal_type: "sell", credit_type: "PNBL" }
+          ]
+        };
+
+      if (where.AND) where.AND.push(categoryFilter);
+      else where.AND = [categoryFilter];
     }
 
     // Total count
@@ -479,8 +500,9 @@ const getAllDeals = async (
     const allPendingDeals = await getdb.deal.findMany({
       where: pendingWhere,
       include: {
-        buyCurrency: { select: { code: true } },
-        sellCurrency: { select: { code: true } },
+        customer: { select: { name: true } },
+        buyCurrency: { select: { id: true, code: true } },
+        sellCurrency: { select: { id: true, code: true } },
       }
     });
 
@@ -496,23 +518,35 @@ const getAllDeals = async (
 
       if (creditType === "BNPL") {
         if (deal.deal_type === "buy") {
-          // BNPL Buy: We owe payment to customer
+          // BNPL Buy: We owe payment (Give) - PERFECT
           const code = deal.sellCurrency?.code;
-          if (code) outstandingBalances.payable.BNPL[code] = (outstandingBalances.payable.BNPL[code] || 0) + amountToBePaid;
+          if (code) {
+            outstandingBalances.payable.BNPL[code] = (outstandingBalances.payable.BNPL[code] || 0) + amountToBePaid;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: BNPL Buy -> We owe PAYMENT (${amountToBePaid} ${code}) -> payable.BNPL`);
+          }
         } else if (deal.deal_type === "sell") {
-          // BNPL Sell: Customer owes payment to us
-          const code = deal.buyCurrency?.code;
-          if (code) outstandingBalances.receivable.BNPL[code] = (outstandingBalances.receivable.BNPL[code] || 0) + amountToBePaid;
+          // BNPL Sell: Swapped to amount/sellCurrency as per example
+          const code = deal.sellCurrency?.code;
+          if (code) {
+            outstandingBalances.receivable.BNPL[code] = (outstandingBalances.receivable.BNPL[code] || 0) + amount;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: BNPL Sell -> Customer owes ASSET value (${amount} ${code}) -> receivable.BNPL`);
+          }
         }
       } else if (creditType === "PNBL") {
         if (deal.deal_type === "buy") {
-          // PNBL Buy: Customer owes us the asset (we already paid)
+          // PNBL Buy: Customer owes Asset (Receive) - PERFECT
           const code = deal.buyCurrency?.code;
-          if (code) outstandingBalances.receivable.PNBL[code] = (outstandingBalances.receivable.PNBL[code] || 0) + amount;
+          if (code) {
+            outstandingBalances.receivable.PNBL[code] = (outstandingBalances.receivable.PNBL[code] || 0) + amount;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: PNBL Buy -> Customer owes ASSET (${amount} ${code}) -> receivable.PNBL`);
+          }
         } else if (deal.deal_type === "sell") {
-          // PNBL Sell: We owe the asset to customer (they already paid)
-          const code = deal.sellCurrency?.code;
-          if (code) outstandingBalances.payable.PNBL[code] = (outstandingBalances.payable.PNBL[code] || 0) + amount;
+          // PNBL Sell: Swapped to amount_to_be_paid/buyCurrency as per example
+          const code = deal.buyCurrency?.code;
+          if (code) {
+            outstandingBalances.payable.PNBL[code] = (outstandingBalances.payable.PNBL[code] || 0) + amountToBePaid;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: PNBL Sell -> We owe PAYMENT value (${amountToBePaid} ${code}) -> payable.PNBL`);
+          }
         }
       }
     });

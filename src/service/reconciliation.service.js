@@ -431,8 +431,47 @@ const startReconciliation = async (id, userId) => {
   }
 };
 
-const calculateAndSetReconciliationStatus = async (id, userId) => {
+const calculateAndSetReconciliationStatus = async (id, userId, vaultAdjustments = {}) => {
   try {
+    // Apply vault adjustments (deltas) BEFORE re-fetching and recalculating
+    if (Object.keys(vaultAdjustments).length > 0) {
+      const currentRecon = await getdb.reconciliation.findUnique({
+        where: { id: Number(id) },
+        include: { closingEntries: true }
+      });
+      
+      if (currentRecon && currentRecon.closingEntries.length > 0) {
+        for (const [cid, delta] of Object.entries(vaultAdjustments)) {
+          const currencyId = Number(cid);
+          const amountDelta = Number(delta);
+          if (isNaN(amountDelta) || Math.abs(amountDelta) < 0.01) continue;
+
+          const existingEntry = currentRecon.closingEntries.find(c => c.currency_id === currencyId);
+          if (existingEntry) {
+            await getdb.reconciliationClosing.update({
+              where: { id: existingEntry.id },
+              data: { 
+                amount: { increment: amountDelta },
+                denomination: { increment: amountDelta } 
+              }
+            });
+            logger.info(`Adjusted vault for recon ${id}, currency ${currencyId} by delta ${amountDelta}`);
+          } else if (amountDelta > 0) {
+            await getdb.reconciliationClosing.create({
+              data: {
+                reconciliation_id: Number(id),
+                currency_id: currencyId,
+                amount: amountDelta,
+                quantity: 1,
+                denomination: amountDelta,
+                exchange_rate: 1.0
+              }
+            });
+          }
+        }
+      }
+    }
+
     // ---------------- RE-MAP DAILY ACTIVITY ----------------
     // This ensures any deals or expenses added AFTER starting the reconciliation are included.
     await mapDailyDeals(id, userId);

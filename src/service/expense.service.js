@@ -59,7 +59,9 @@ const createExpense = async (data, userId) => {
         if (recon) {
             logger.info(`Found reconciliation ${recon.id} for auto-mapping.`);
             await mapDailyExpenses(recon.id, userId);
-            await calculateAndSetReconciliationStatus(recon.id, userId);
+            // Deduct expense amount from vault if reconciliation is already captured
+            const adjustment = { [expense.currency_id]: -Number(expense.amount) };
+            await calculateAndSetReconciliationStatus(recon.id, userId, adjustment);
         }
 
         return expense;
@@ -180,6 +182,9 @@ const updateExpense = async (id, data, userId) => {
         // Remove undefined fields
         Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
 
+        // Fetch old expense to calculate delta before updating
+        const oldExpense = await getdb.expense.findUnique({ where: { id: Number(id) } });
+
         const updatedExpense = await getdb.expense.update({
             where: { id: Number(id) },
             data: updateData,
@@ -195,9 +200,26 @@ const updateExpense = async (id, data, userId) => {
             }
         });
 
-        if (recon) {
+        if (recon && oldExpense) {
             await mapDailyExpenses(recon.id, userId);
-            await calculateAndSetReconciliationStatus(recon.id, userId);
+            
+            // Calculate adjustments
+            const adjustments = {};
+            const oldAmt = Number(oldExpense.amount || 0);
+            const newAmt = Number(updatedExpense.amount || 0);
+            const oldCid = oldExpense.currency_id;
+            const newCid = updatedExpense.currency_id;
+
+            if (oldCid === newCid) {
+                // Same currency: delta is old - new
+                adjustments[oldCid] = oldAmt - newAmt;
+            } else {
+                // Different currencies: return old, take new
+                adjustments[oldCid] = oldAmt;
+                adjustments[newCid] = -newAmt;
+            }
+            
+            await calculateAndSetReconciliationStatus(recon.id, userId, adjustments);
         }
 
         return updatedExpense;
@@ -230,8 +252,9 @@ const deleteExpense = async (id, userId) => {
             });
 
             if (recon) {
-                // Since it's a hard delete, junction table records are already cascaded
-                await calculateAndSetReconciliationStatus(recon.id, userId);
+                // Return money to vault: positive delta
+                const adjustment = { [expense.currency_id]: Number(expense.amount) };
+                await calculateAndSetReconciliationStatus(recon.id, userId, adjustment);
             }
         }
 

@@ -503,6 +503,12 @@ const getAllDeals = async (
         customer: { select: { name: true } },
         buyCurrency: { select: { id: true, code: true } },
         sellCurrency: { select: { id: true, code: true } },
+        receivedItems: {
+          select: { total: true }
+        },
+        paidItems: {
+          select: { total: true }
+        }
       }
     });
 
@@ -516,36 +522,43 @@ const getAllDeals = async (
       const amountToBePaid = Number(deal.amount_to_be_paid || 0);
       const creditType = (deal.credit_type === "BNPL" || deal.credit_type === "PNBL") ? deal.credit_type : "BNPL";
 
+      const sumReceived = deal.receivedItems?.reduce((acc, item) => acc + Number(item.total || 0), 0) || 0;
+      const sumPaid = deal.paidItems?.reduce((acc, item) => acc + Number(item.total || 0), 0) || 0;
+
       if (creditType === "BNPL") {
         if (deal.deal_type === "buy") {
-          // BNPL Buy: We owe payment (Give) - PERFECT
+          // BNPL Buy: We owe payment (Give). Net = Total Payment - Already Paid
+          const remaining = amountToBePaid - sumPaid;
           const code = deal.sellCurrency?.code;
-          if (code) {
-            outstandingBalances.payable.BNPL[code] = (outstandingBalances.payable.BNPL[code] || 0) + amountToBePaid;
-            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: BNPL Buy -> We owe PAYMENT (${amountToBePaid} ${code}) -> payable.BNPL`);
+          if (code && remaining > 0) {
+            outstandingBalances.payable.BNPL[code] = (outstandingBalances.payable.BNPL[code] || 0) + remaining;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: BNPL Buy -> We owe PAYMENT (${remaining} ${code}) [Net: ${amountToBePaid} - ${sumPaid}]`);
           }
         } else if (deal.deal_type === "sell") {
-          // BNPL Sell: Swapped to amount/sellCurrency as per example
+          // BNPL Sell: (User Rule: Asset side). Net = Total Asset - Asset Delivered
+          const remaining = amount - sumPaid;
           const code = deal.sellCurrency?.code;
-          if (code) {
-            outstandingBalances.receivable.BNPL[code] = (outstandingBalances.receivable.BNPL[code] || 0) + amount;
-            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: BNPL Sell -> Customer owes ASSET value (${amount} ${code}) -> receivable.BNPL`);
+          if (code && remaining > 0) {
+            outstandingBalances.receivable.BNPL[code] = (outstandingBalances.receivable.BNPL[code] || 0) + remaining;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: BNPL Sell -> Customer owes ASSET (${remaining} ${code}) [Net: ${amount} - ${sumPaid}]`);
           }
         }
       } else if (creditType === "PNBL") {
         if (deal.deal_type === "buy") {
-          // PNBL Buy: Customer owes Asset (Receive) - PERFECT
+          // PNBL Buy: Customer owes Asset (Receive). Net = Total Asset - Asset Received
+          const remaining = amount - sumReceived;
           const code = deal.buyCurrency?.code;
-          if (code) {
-            outstandingBalances.receivable.PNBL[code] = (outstandingBalances.receivable.PNBL[code] || 0) + amount;
-            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: PNBL Buy -> Customer owes ASSET (${amount} ${code}) -> receivable.PNBL`);
+          if (code && remaining > 0) {
+            outstandingBalances.receivable.PNBL[code] = (outstandingBalances.receivable.PNBL[code] || 0) + remaining;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: PNBL Buy -> Customer owes ASSET (${remaining} ${code}) [Net: ${amount} - ${sumReceived}]`);
           }
         } else if (deal.deal_type === "sell") {
-          // PNBL Sell: Swapped to amount_to_be_paid/buyCurrency as per example
+          // PNBL Sell: (User Rule: Payment side). Net = Total Payment - Cash already Received
+          const remaining = amountToBePaid - sumReceived;
           const code = deal.buyCurrency?.code;
-          if (code) {
-            outstandingBalances.payable.PNBL[code] = (outstandingBalances.payable.PNBL[code] || 0) + amountToBePaid;
-            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: PNBL Sell -> We owe PAYMENT value (${amountToBePaid} ${code}) -> payable.PNBL`);
+          if (code && remaining > 0) {
+            outstandingBalances.payable.PNBL[code] = (outstandingBalances.payable.PNBL[code] || 0) + remaining;
+            console.log(`[OUTSTANDING] Deal ${deal.deal_number}: PNBL Sell -> We owe PAYMENT value (${remaining} ${code}) [Net: ${amountToBePaid} - ${sumReceived}]`);
           }
         }
       }
